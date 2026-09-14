@@ -20,8 +20,8 @@ Status: **not run end to end**. This file records what exists, what was executed
 
 ## What stopped the full loop
 
-- **Root directory.** Git deployments of the cockpit need the project root directory set to `apps/factory`. The Vercel API token available to the agent had no `demo-software-factory` scope, so the setting has to be made in the dashboard (Project → Settings → Root Directory). Until then only CLI deployments from `apps/factory` build.
-- **Connector coverage.** The `github/jira-clone` GitHub App installation is attached to the cockpit project, but whether it can read `adeo-todo-proto` and publish to `adeo-todo-nuxt` could not be verified from the session (token retrieval denied). A person confirms this in GitHub → Settings → Installed GitHub Apps, or creates a connector with `vercel connect create github` from `apps/factory`.
+- **Root directory.** Set to `apps/factory` at 15:52 through `vercel api PATCH /v9/projects/<id>` (the MCP token lacked team scope; the CLI's own session worked). A CLI deployment from `apps/factory` (`dpl_EJ1pUqnsHc2WjR8eLwnKAFdUT4Nv`) ended `BLOCKED`; the first git deployment is recorded below when it exists.
+- **Connector coverage.** Verified indirectly at 15:55 on 14 Sep: `gh api /orgs/software-factory-workshop/installations` lists the connector's GitHub App `jira-clone-adeo` (installation 161088937) with `repository_selection: all`, so `github/jira-clone` can read `adeo-todo-proto` and publish to `adeo-todo-nuxt`. The token itself was never read by the agent.
 - **Fixture PRs.** The three `[injected]` fixtures are patches in the factory repository; the paid gate evals need a person to open them as PRs in `adeo-todo-nuxt`.
 
 ## Command sheet to finish the reference run
