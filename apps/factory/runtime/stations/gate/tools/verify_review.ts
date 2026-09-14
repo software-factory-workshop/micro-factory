@@ -75,7 +75,13 @@ export default defineTool({description:"Rerun the required typecheck, unit, e2e 
    yield{phase:result.exitCode===0?"Check passed":`Check failed (${attribution})`,evidence,attribution,testCount:candidateTestCount};
    if(result.exitCode!==0){allPassed=false;log.set({factory:{station:gate,stage:"verify_review",outcome:"failed",check,exitCode:result.exitCode,attribution}});}
   }
-  if(!allPassed){yield{phase:"Candidate not verified",attributions:workState.get().attributions,headSha:pull.headSha};return;}
+  if(!allPassed){
+   // The last yield is the tool result the model reads: carry the host findings and both test counts
+   // so the gate does not have to re-derive the delta from the diff (observed in the 14 Sep eval).
+   const s=workState.get();
+   yield{phase:"Candidate not verified",attributions:s.attributions,headSha:pull.headSha,baseTestCount,candidateTestCount:s.candidateTestCount,findings:s.verificationFindings??[]};
+   return;
+  }
   if((await collectChanges(sandbox,state.baseline,true)).length)throw new Error("Candidate changed during verification; review cannot approve modified source.");
   const verification=await runGuardedFactoryOperation({
    operationId:`${ctx.session.id}:record-verification`,
