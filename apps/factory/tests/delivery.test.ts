@@ -1,7 +1,7 @@
 import { stationAddress } from "../runtime/lib/station-access.ts";
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyReview,newDelivery,operationFor,deliveryRequest,referenceState,claimAdvance,commitAdvance,transition,requestResume } from '../runtime/lib/delivery-state.ts';
+import { applyReview,newDelivery,operationFor,deliveryRequest,referenceState,claimAdvance,commitAdvance,transition,requestResume,resetObservation } from '../runtime/lib/delivery-state.ts';
 import { classifyDeliveryError,hostResult,eventsForDelivery,snapshotEvents,resumeMessage,resumeReceipt } from '../runtime/lib/delivery-events.ts';
 import { allowedWorkPath } from '../runtime/lib/work-github.ts';
 import { verificationCommands } from '../runtime/lib/factory-config.ts';
@@ -87,3 +87,6 @@ test('prepublication recovery queues only the existing owner and retains publica
 test('stopped review and published worker cannot be mistaken for unpublished recovery',()=>{const s=state();s.childSessionId='wrun_reviewer';transition(s,'human_review');assert.throws(()=>requestResume(s,'resume-id'),/requires review/);});
 
 test('lost continuation receipt is recovered from original owner event without another send',()=>{const event={type:'message.received',data:{message:resumeMessage('resume-one')},meta:{deliveryIds:['accepted-receipt']}};assert.equal(resumeReceipt([event],'resume-one'),'accepted-receipt');assert.equal(resumeReceipt([event],'different'),undefined);assert.equal(resumeReceipt([{...event,type:'message.completed'}],'resume-one'),undefined);});
+
+test('a new station session starts observing its own stream from the beginning',()=>{const s=state();s.observation={lastEventIndex:351,lastEventAt:'2026-09-14T14:35:25.843Z'};resetObservation(s,'2026-09-14T14:35:47.000Z');assert.deepEqual(s.observation,{lastEventIndex:-1,lastEventAt:'2026-09-14T14:35:47.000Z'});});
+test('a cursor beyond the observed stream tail is recognisable as a foreign cursor',async()=>{const snapshot=await snapshotEvents({getStreamTailIndex:async()=>186,getEventStream:async()=>new ReadableStream()},{startIndex:352});assert.equal(snapshot.length,0);assert.ok(snapshot.observation.lastEventIndex<351);});

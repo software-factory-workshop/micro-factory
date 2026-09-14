@@ -512,6 +512,14 @@ export function applyReview(state: Delivery, review: DeliveryReview) {
   return transition(state, 'human_review', { reason: `${gate} requires a human decision for head ${publication.headSha}; no merge was performed.` });
 }
 
+// Every station gets its own Eve stream; the observation cursor belongs to
+// one stream. Reusing the migrator's cursor for a gate whose stream is shorter
+// made the loop observe nothing forever (reference run b68d408e, 14 Sep 2026;
+// the Jira factory carried the same defect at aaa48b9).
+export function resetObservation(state: Delivery, at = new Date().toISOString()) {
+  state.observation = { lastEventIndex: -1, lastEventAt: at };
+}
+
 export function referenceState(publication: NonNullable<Delivery['publication']>, actual: { state: string; headSha: string; targetBranch: string; targetHeadSha: string }): 'current' | 'needs_revision' | 'blocked' {
   if (actual.state !== 'open' || actual.targetBranch !== publication.targetBranch) return 'blocked';
   return actual.headSha === publication.headSha && actual.targetHeadSha === publication.targetHeadSha ? 'current' : 'needs_revision';

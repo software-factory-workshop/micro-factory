@@ -9,7 +9,7 @@ import { readCockpit,updateCockpit } from '../lib/cockpit-store';
 import { changeRecord,workOrderAdmissionSchema } from '../../shared/cockpit';
 import { factoryAuth } from '../lib/route-auth';
 import { stationOperation } from './stations';
-import { answerOwnerQuestion, deliveryRequest,newDelivery,operationFor,transition,terminal,applyReview,referenceState,claimAdvance,commitAdvance,requestResume,beginRevision,admissionRecoveryAction,recordAdmissionFailure,retryAdmission,type Delivery } from '../lib/delivery-state';
+import { answerOwnerQuestion, deliveryRequest,newDelivery,operationFor,transition,terminal,applyReview,referenceState,claimAdvance,commitAdvance,requestResume,beginRevision,admissionRecoveryAction,recordAdmissionFailure,retryAdmission,resetObservation,type Delivery } from '../lib/delivery-state';
 import { listDeliveryReceipts,readDelivery,updateDelivery } from '../lib/delivery-store';
 import { classifyDeliveryError,snapshotEvents,childIn,hostResult,stoppedWithoutResult,eventsForDelivery,modelUsageFromEvents,accumulateModelUsage,resumeMessage,resumeReceipt,type ClassifiedDeliveryError, type EventSnapshot } from '../lib/delivery-events';
 import { readPull,readBranch,WorkError,workBranch } from '../lib/work-github';
@@ -83,12 +83,13 @@ async function advance(request:Request,ctx:RouteHandlerArgs){
    const body=station==='migrator'?{operationId:state.operationId,title:state.request.title,brief:state.request.brief,...(state.request.parentPrNumber?{parentPrNumber:state.request.parentPrNumber}:{})}:station==='revisions'?{operationId:state.operationId,prNumber:state.publication!.number,brief:state.revisionBrief}:{operationId:state.operationId,prNumber:state.publication!.number};
    const response=await stationOperation(new Request(request.url,{method:'POST',headers:request.headers,body:JSON.stringify(body)}),{...ctx,params:{station}},state.id);
    const result=await response.json();if(!response.ok){const code=typeof result.error==='object'&&result.error&&typeof result.error.code==='string'?result.error.code:response.status>=500?'provider_unavailable':'invalid_request';throw new WorkError(code,typeof result.error==='string'?result.error:result.error?.message||'Station start failed');}
-   state.sessionId=z.string().parse(result.sessionId);state.childSessionId=station==='revisions'||result.execution==='direct'||result.execution==='owner'?state.sessionId:undefined;state.deliveryId=result.deliveryId;state.execution={attempt:state.attempt,station,operationId:state.operationId,sessionId:state.sessionId,deliveryId:state.deliveryId};
+   const previousSession=state.sessionId;state.sessionId=z.string().parse(result.sessionId);state.childSessionId=station==='revisions'||result.execution==='direct'||result.execution==='owner'?state.sessionId:undefined;state.deliveryId=result.deliveryId;if(state.sessionId!==previousSession)resetObservation(state);state.execution={attempt:state.attempt,station,operationId:state.operationId,sessionId:state.sessionId,deliveryId:state.deliveryId};
    transition(state,station==='migrator'?'working':station==='revisions'?'revising':'reviewing',{reason:`${station} execution accepted by the host.`});
   }else{
    if(!state.sessionId)throw new Error('Delivery session receipt missing');
-   const startIndex=state.observation.lastEventIndex+1;
+   let startIndex=state.observation.lastEventIndex+1;
    let snapshot=await snapshotEvents((await factorySession(state.sessionId,ctx.attachSession)),{startIndex});
+   if(!snapshot.length&&snapshot.observation.lastEventIndex<startIndex-1){resetObservation(state);startIndex=0;snapshot=await snapshotEvents((await factorySession(state.sessionId,ctx.attachSession)),{startIndex});}
    let events: unknown[]=snapshot;
    if(!state.childSessionId)state.childSessionId=childIn(events);
    if(state.childSessionId&&state.childSessionId!==state.sessionId){
