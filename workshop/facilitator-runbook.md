@@ -65,6 +65,10 @@ FACTORY_RUN_INJECTED_DEFECT_EVAL=1 FACTORY_INJECTED_DEFECT_PR=5 FACTORY_INJECTED
 
 Expected: `changes_requested` each time; #4 blocked by the host test-count delta (18 < 19) before any model text. Findings recorded in the night-before runs: `tests/todos.test.ts:14`, `server/api/todos/index.post.ts:13`, `app/components/TodoList.vue:39`.
 
+## The shared GitHub budget
+
+Both factories, and any other agent using the `github/jira-clone` connector, share one GitHub App installation with a 5000 requests/hour budget. It ran out during the night before the workshop (error text: `API rate limit exceeded for installation ID 161088937 … resets <time>`), which surfaced as `prepare_work`/`prepare_review` HTTP 403 and deliveries stopping in `human_review`. Two fixes shipped: snapshots now cost one archive request per revision instead of one call per file (a run went from ~300 calls to ~20), and a gate that stops before recording a review is restarted automatically. If the error reappears, the message names the reset time; nothing else is wrong. Do not run other GitHub-heavy automation (a Codex loop was feeding the Jira factory every 20 seconds overnight) during the practical.
+
 ## Known wobbles and what to say
 
 - `prepare_review` can fail on a GitHub hiccup (`fetch failed`, or `HTTP 403` seen once on the night). The gate records no verdict. In the cockpit loop the gate is restarted automatically, up to twice ("Restarting quality-gate (retry 1 of 2)" in the timeline); in a standalone eval, rerun it. This is the "infrastructure, not candidate" attribution in action.
