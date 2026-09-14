@@ -96,6 +96,7 @@ as zero.
 
 ## Not in this factory
 
-Auto-merge of any class, scheduled runs, webhook triggers, a trace viewer, a
-different model vendor per station and self-modification of the factory. The
+Auto-merge of any class, scheduled runs, webhook triggers, a trace viewer and
+self-modification of the factory. (The security gate does review on a different
+model vendor than the migrator since 15 Sep.) The
 cockpit names each of these as missing.

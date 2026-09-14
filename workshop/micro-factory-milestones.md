@@ -85,4 +85,4 @@ Recovery: if the loop keeps revising past three rounds, compare `request.maxRevi
 
 ## Out of scope in every milestone
 
-Auto-merge of any class, scheduled runs, webhook triggers, a trace viewer, a different model vendor per station, self-modification of the factory. The cockpit lists them under "Not in this factory (v1)".
+Auto-merge of any class, scheduled runs, webhook triggers, a trace viewer, self-modification of the factory. The cockpit lists them under "Not in this factory (v1)".

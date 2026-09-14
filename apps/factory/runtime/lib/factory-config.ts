@@ -87,6 +87,5 @@ export const missingCapabilities = [
   "Scheduled runs: nothing starts without an operator request.",
   "Webhook triggers: GitHub events do not start or advance work.",
   "Trace viewer: only receipts, findings and command evidence are shown.",
-  "A different model vendor per station: all stations use the same model.",
   "Self-modification: the factory does not change its own instructions, tools or policies.",
 ] as const;

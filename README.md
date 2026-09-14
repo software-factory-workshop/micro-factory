@@ -56,4 +56,4 @@ The cockpit needs a Vercel project with a private Blob store attached, project O
 
 ## Not in v1
 
-Auto-merge of any class, scheduled runs, webhook triggers, a trace viewer, a different model vendor per station, self-modification of the factory. The cockpit names each as missing.
+Auto-merge of any class, scheduled runs, webhook triggers, a trace viewer, self-modification of the factory. The cockpit names each as missing.
