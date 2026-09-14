@@ -373,3 +373,30 @@ export function accumulateModelUsage(current: ModelUsage | undefined, window: Mo
     ...(window.factorySha ?? current.factorySha ? { factorySha: window.factorySha ?? current.factorySha } : {}),
   };
 }
+
+export interface SessionLimitRequest { requestId: string; usedTokens?: number; limit?: number; kind: string }
+
+/**
+ * Eve pauses a session that hits its per-session token guardrail with an
+ * `input.requested` of kind `session-limit` and waits for a response. That is
+ * an owner decision, not a stopped run: the loop surfaces it as a question.
+ */
+export function pendingSessionLimit(events: readonly unknown[]): SessionLimitRequest | undefined {
+  let found: SessionLimitRequest | undefined;
+  for (const event of events) {
+    const record = recordValue(event);
+    const type = stringValue(record?.type);
+    if (type === 'turn.started') found = undefined;
+    if (type !== 'input.requested') continue;
+    const requests = recordValue(record?.data)?.requests;
+    if (!Array.isArray(requests)) continue;
+    for (const request of requests) {
+      const item = recordValue(request);
+      if (stringValue(item?.kind) !== 'session-limit') continue;
+      const input = recordValue(recordValue(item?.action)?.input);
+      const requestId = stringValue(item?.requestId);
+      if (requestId) found = { requestId, kind: stringValue(input?.kind) ?? 'input', usedTokens: positiveInteger(input?.usedTokens), limit: positiveInteger(input?.limit) };
+    }
+  }
+  return found;
+}

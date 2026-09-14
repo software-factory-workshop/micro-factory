@@ -6,14 +6,17 @@
 // whole transcript and the prototype had been read file by file. The migrator
 // gets a larger input budget; the cost cap stays the hard limit. Gates keep the
 // smaller budget: a review that needs more than 500K input tokens is a smell.
+// Attempt 3 (4d1294bb) hit 2M while debugging e2e at 0.03 USD spent: the token
+// guardrail, not spend, stops runs. A guardrail hit is now an owner question in
+// the cockpit; the cost cap is the hard limit.
 export const factoryModelLimits = {
-  maxInputTokensPerSession: 500_000,
-  maxOutputTokensPerSession: 100_000,
+  maxInputTokensPerSession: 2_000_000,
+  maxOutputTokensPerSession: 200_000,
   maxTokenCostUsdPerSession: 25,
 } as const;
 export const migratorModelLimits = {
-  maxInputTokensPerSession: 2_000_000,
-  maxOutputTokensPerSession: 200_000,
+  maxInputTokensPerSession: 6_000_000,
+  maxOutputTokensPerSession: 400_000,
   maxTokenCostUsdPerSession: 25,
 } as const;
 

@@ -44,4 +44,11 @@ export function rootSession(root:RootAgent,id:string) {
  };
 }
 
+/** Answer an Eve input request (for example a session-limit continuation) on a station root. */
+export async function respondToSessionInput(root:RootAgent,id:string,requestId:string,optionId:string){
+ const response=await fetch(`${factoryOrigin()}/${root}/eve/v1/session/${encodeURIComponent(id)}`,{method:'POST',headers:await serviceHeaders(),body:JSON.stringify({inputResponses:[{requestId,optionId}]}),redirect:'error',signal:AbortSignal.timeout(30000)});
+ const result=await response.json();if(!response.ok)throw new Error(result.error?.message||result.error||`Session input response failed (${response.status})`);
+ return result as {status?:string;deliveryId?:string};
+}
+
 export async function factorySession<T>(id:string,fallback:(id:string)=>T){const root=await recordedRoot(id);return root?rootSession(root,id):fallback(id);}

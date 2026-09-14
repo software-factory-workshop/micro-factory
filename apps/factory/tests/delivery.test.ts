@@ -1,8 +1,8 @@
 import { stationAddress } from "../runtime/lib/station-access.ts";
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyReview,newDelivery,operationFor,deliveryRequest,referenceState,claimAdvance,commitAdvance,transition,requestResume,resetObservation } from '../runtime/lib/delivery-state.ts';
-import { classifyDeliveryError,hostResult,eventsForDelivery,snapshotEvents,resumeMessage,resumeReceipt } from '../runtime/lib/delivery-events.ts';
+import { applyReview,newDelivery,operationFor,deliveryRequest,referenceState,claimAdvance,commitAdvance,transition,requestResume,resetObservation,askBudgetApproval,answerOwnerQuestion,BUDGET_APPROVE,BUDGET_STOP } from '../runtime/lib/delivery-state.ts';
+import { classifyDeliveryError,hostResult,eventsForDelivery,snapshotEvents,resumeMessage,resumeReceipt,pendingSessionLimit,stoppedWithoutResult } from '../runtime/lib/delivery-events.ts';
 import { allowedWorkPath } from '../runtime/lib/work-github.ts';
 import { verificationCommands } from '../runtime/lib/factory-config.ts';
 const task=deliveryRequest.parse({operationId:'11111111-1111-4111-8111-111111111111',title:'Jira state',brief:'Create a useful stateful issue list'});
@@ -90,3 +90,16 @@ test('lost continuation receipt is recovered from original owner event without a
 
 test('a new station session starts observing its own stream from the beginning',()=>{const s=state();s.observation={lastEventIndex:351,lastEventAt:'2026-09-14T14:35:25.843Z'};resetObservation(s,'2026-09-14T14:35:47.000Z');assert.deepEqual(s.observation,{lastEventIndex:-1,lastEventAt:'2026-09-14T14:35:47.000Z'});});
 test('a cursor beyond the observed stream tail is recognisable as a foreign cursor',async()=>{const snapshot=await snapshotEvents({getStreamTailIndex:async()=>186,getEventStream:async()=>new ReadableStream()},{startIndex:352});assert.equal(snapshot.length,0);assert.ok(snapshot.observation.lastEventIndex<351);});
+
+test('a session-limit pause becomes an owner question with two fixed options, answered as a budget decision',()=>{
+ const events=[{type:'turn.started',data:{}},{type:'input.requested',data:{requests:[{kind:'session-limit',requestId:'wrun_x:limit:input:2011137',action:{input:{kind:'input',limit:2000000,usedTokens:2011137}}}]}},{type:'turn.completed',data:{}},{type:'session.waiting',data:{}}];
+ const limit=pendingSessionLimit(events);assert.deepEqual(limit,{requestId:'wrun_x:limit:input:2011137',kind:'input',usedTokens:2011137,limit:2000000});assert.equal(stoppedWithoutResult(events),'turn.completed');
+ assert.equal(pendingSessionLimit([...events,{type:'turn.started',data:{}}]),undefined);
+ const s=state();delete s.publication;s.childSessionId='wrun_x';transition(s,'working');
+ const q=askBudgetApproval(s,{requestId:limit!.requestId,sessionId:'wrun_x',operationId:s.operationId,usedTokens:limit!.usedTokens,limit:limit!.limit,station:'migrator'});
+ assert.equal(s.phase,'awaiting_input');assert.deepEqual(q.options,[BUDGET_APPROVE,BUDGET_STOP]);assert.match(q.question,/2,011,137 of 2,000,000/);assert.equal(s.budgetRequest?.requestId,limit!.requestId);
+ assert.equal(askBudgetApproval(s,{requestId:limit!.requestId,sessionId:'wrun_x',operationId:s.operationId,station:'migrator'}),q);
+ answerOwnerQuestion(s,s.operationId,BUDGET_APPROVE,'owner');assert.equal(s.phase,'owner_resuming');assert.ok(s.budgetRequest);
+ transition(s,'working');assert.equal(s.phase,'working');
+});
+test('a gate at its guardrail can also wait for the owner and resume reviewing',()=>{const s=state();s.childSessionId='wrun_gate';transition(s,'review_starting');transition(s,'reviewing');askBudgetApproval(s,{requestId:'r',sessionId:'wrun_gate',operationId:s.operationId,station:'quality-gate'});assert.equal(s.phase,'awaiting_input');answerOwnerQuestion(s,s.operationId,BUDGET_APPROVE,'owner');transition(s,'reviewing');assert.equal(s.phase,'reviewing');});

@@ -220,6 +220,9 @@ export interface Delivery {
   resumeOperationId?: string;
   resumeMessage?: string;
   resumeRequests?: Record<string, boolean>;
+  // Set while the owner decides on an Eve session-limit continuation; answered
+  // through the session's input response instead of a resume message.
+  budgetRequest?: { requestId: string; sessionId: string; usedTokens?: number; limit?: number };
   questions: DeliveryQuestion[];
   usage?: ModelUsage;
   failure?: ClassifiedDeliveryError;
@@ -245,7 +248,7 @@ const allowedTransitions: Record<Phase, readonly Phase[]> = {
   worker_starting: ['working', 'review_starting', 'revision_starting', 'human_review', 'blocked', 'needs_revision', 'cancelled'],
   working: ['review_starting', 'awaiting_input', 'human_review', 'blocked', 'needs_revision', 'cancelled'],
   review_starting: ['reviewing', 'human_review', 'blocked', 'needs_revision', 'cancelled'],
-  reviewing: ['review_starting', 'ready', 'human_review', 'revision_starting', 'merging', 'blocked', 'needs_revision', 'cancelled'],
+  reviewing: ['review_starting', 'ready', 'human_review', 'revision_starting', 'awaiting_input', 'merging', 'blocked', 'needs_revision', 'cancelled'],
   revision_starting: ['revising', 'human_review', 'blocked', 'needs_revision', 'cancelled'],
   revising: ['review_starting', 'awaiting_input', 'human_review', 'blocked', 'needs_revision', 'cancelled'],
   human_review: ['owner_resuming', 'revision_starting', 'merging', 'blocked', 'cancelled'],
@@ -253,8 +256,8 @@ const allowedTransitions: Record<Phase, readonly Phase[]> = {
   blocked: ['worker_starting', 'working', 'review_starting', 'reviewing', 'revision_starting', 'revising', 'human_review', 'ready', 'needs_revision', 'owner_resuming', 'merging', 'cancelled'],
   cancelled: [],
   needs_revision: ['revision_starting', 'human_review', 'cancelled'],
-  owner_resuming: ['working', 'human_review', 'blocked', 'cancelled'],
-  awaiting_input: ['owner_resuming', 'cancelled'],
+  owner_resuming: ['working', 'revising', 'reviewing', 'human_review', 'blocked', 'cancelled'],
+  awaiting_input: ['owner_resuming', 'human_review', 'cancelled'],
   merging: ['merged', 'human_review', 'blocked', 'cancelled'],
   merged: [],
 };
@@ -572,7 +575,7 @@ export function askOwnerQuestion(
 ) {
   const existing = [...state.questions].reverse().find(question => question.operationId === input.operationId && !question.answer);
   if (existing && state.phase === 'awaiting_input') return existing;
-  if (!['working', 'revising'].includes(state.phase)) throw new Error('An owner question can only be asked while the worker is executing.');
+  if (!['working', 'revising', 'reviewing'].includes(state.phase)) throw new Error('An owner question can only be asked while a station is executing.');
   if (state.operationId !== input.operationId) throw new Error('The worker operation is not the active delivery operation.');
   if (state.questions.some(question => !question.answer)) throw new Error('This delivery is already waiting for an owner answer.');
   if (state.questions.length >= MAX_OWNER_QUESTIONS) throw new Error('This delivery has reached its owner-question limit.');
@@ -588,6 +591,20 @@ export function askOwnerQuestion(
   };
   state.questions = [...state.questions, entry];
   transition(state, 'awaiting_input', { operationId: input.operationId, reason: 'The worker needs an owner answer before it can continue.' });
+  return entry;
+}
+
+export const BUDGET_APPROVE = 'Approve a fresh token budget';
+export const BUDGET_STOP = 'Stop here';
+
+// A session-limit pause becomes one owner question with two fixed options.
+export function askBudgetApproval(state: Delivery, input: { requestId: string; sessionId: string; operationId: string; usedTokens?: number; limit?: number; station: string }, askedAt = new Date().toISOString()) {
+  if (state.budgetRequest?.requestId === input.requestId) return state.questions.at(-1)!;
+  const used = input.usedTokens ? input.usedTokens.toLocaleString('en-US') : 'its';
+  const limit = input.limit ? input.limit.toLocaleString('en-US') : 'the configured';
+  const question = `The ${input.station} hit its per-session input-token guardrail (${used} of ${limit} tokens). Spend so far is on the receipts. Approve a fresh budget for the same session, or stop here?`;
+  const entry = askOwnerQuestion(state, { question, options: [BUDGET_APPROVE, BUDGET_STOP], operationId: input.operationId, sessionId: input.sessionId }, askedAt);
+  state.budgetRequest = { requestId: input.requestId, sessionId: input.sessionId, ...(input.usedTokens ? { usedTokens: input.usedTokens } : {}), ...(input.limit ? { limit: input.limit } : {}) };
   return entry;
 }
 

@@ -10,6 +10,7 @@ test("factory configuration keeps host bindings in one plain module", () => {
   assert.ok(factoryModelLimits.maxTokenCostUsdPerSession <= 25);
   assert.equal(migratorModelLimits.maxTokenCostUsdPerSession, factoryModelLimits.maxTokenCostUsdPerSession);
   assert.ok(migratorModelLimits.maxInputTokensPerSession > factoryModelLimits.maxInputTokensPerSession);
+  assert.ok(factoryModelLimits.maxInputTokensPerSession >= 2_000_000);
   assert.deepEqual([...verificationCommands], ["pnpm typecheck", unitTestCommand, e2eTestCommand, "pnpm build"]);
   assert.match(githubConnectorName, /^github\//);
   assert.ok(Object.values(factoryBlobPaths).every(path => path.startsWith("micro-factory/")));

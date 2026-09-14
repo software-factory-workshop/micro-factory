@@ -1,4 +1,4 @@
-import { factorySession } from "../lib/root-agent-client";
+import { factorySession, respondToSessionInput, recordedRoot } from "../lib/root-agent-client";
 import { ensureDeliveryDriver,cancelDeliveryDriver } from '../lib/delivery-driver';
 import { ownsDriver } from '../lib/delivery-driver-state';
 import { defineChannel,GET,POST,type RouteHandlerArgs } from 'eve/channels';
@@ -9,9 +9,9 @@ import { readCockpit,updateCockpit } from '../lib/cockpit-store';
 import { changeRecord,workOrderAdmissionSchema } from '../../shared/cockpit';
 import { factoryAuth } from '../lib/route-auth';
 import { stationOperation } from './stations';
-import { answerOwnerQuestion, deliveryRequest,newDelivery,operationFor,transition,terminal,applyReview,referenceState,claimAdvance,commitAdvance,requestResume,beginRevision,admissionRecoveryAction,recordAdmissionFailure,retryAdmission,resetObservation,type Delivery } from '../lib/delivery-state';
+import { answerOwnerQuestion, deliveryRequest,newDelivery,operationFor,transition,terminal,applyReview,referenceState,claimAdvance,commitAdvance,requestResume,beginRevision,admissionRecoveryAction,recordAdmissionFailure,retryAdmission,resetObservation,askBudgetApproval,BUDGET_APPROVE,type Delivery } from '../lib/delivery-state';
 import { listDeliveryReceipts,readDelivery,updateDelivery } from '../lib/delivery-store';
-import { classifyDeliveryError,snapshotEvents,childIn,hostResult,stoppedWithoutResult,eventsForDelivery,modelUsageFromEvents,accumulateModelUsage,resumeMessage,resumeReceipt,type ClassifiedDeliveryError, type EventSnapshot } from '../lib/delivery-events';
+import { classifyDeliveryError,snapshotEvents,childIn,hostResult,stoppedWithoutResult,eventsForDelivery,modelUsageFromEvents,accumulateModelUsage,pendingSessionLimit,resumeMessage,resumeReceipt,type ClassifiedDeliveryError, type EventSnapshot } from '../lib/delivery-events';
 import { readPull,readBranch,WorkError,workBranch } from '../lib/work-github';
 import { repository } from '../lib/github.mjs';
 import { githubConnectorName } from '../lib/factory-config.ts';
@@ -52,6 +52,15 @@ async function advance(request:Request,ctx:RouteHandlerArgs){
    if(!state.publication||!state.mergeReview||!state.reviewerSessionId)throw new Error('Missing bound review for merge decision');
    state.mergeDecision=mergeEligibility({files:[],review:state.mergeReview,headSha:state.publication.headSha,baseSha:state.publication.targetHeadSha,targetBranch:state.publication.targetBranch,workerSessionId:state.publication.ownerSessionId,reviewerSessionId:state.reviewerSessionId});
    transition(state,'human_review',{reason:state.mergeDecision.reason});
+  }else if(state.phase==='owner_resuming'&&state.budgetRequest){
+   // The owner answered a session-limit question: respond to Eve's input request on the same session; never resend the task.
+   const budget=state.budgetRequest;const answer=[...state.questions].reverse().find(q=>q.operationId===state.resumeOperationId)?.answer;
+   const root=await recordedRoot(budget.sessionId);if(!root)throw new Error('The paused station root is unknown; answer it from its run page.');
+   const approved=answer===BUDGET_APPROVE;
+   const accepted=await respondToSessionInput(root,budget.sessionId,budget.requestId,approved?'continue':'stop');
+   delete state.budgetRequest;
+   if(!approved){state.failedPhase=undefined;state.error='The owner stopped the station at its token guardrail; source and ownership are preserved.';transition(state,'human_review',{actor:'operator',reason:'Owner declined a fresh token budget.'});}
+   else{if(accepted.deliveryId)state.deliveryId=accepted.deliveryId;const back=root==='migrator'?(state.cycle>0?'revising':'working'):'reviewing';transition(state,back as Parameters<typeof transition>[1],{reason:`Owner approved a fresh token budget for the ${root} session.`});}
   }else if(state.phase==='owner_resuming'){
    if(!state.childSessionId||state.publication||!state.resumeOperationId)throw new Error('Recovery requires the original unpublished migrator.');
    let deliveryId:string|undefined;
@@ -110,6 +119,9 @@ async function advance(request:Request,ctx:RouteHandlerArgs){
    }else if(result){
     const p=publication.parse(result.publication);if(result.revisionProtocol!==1||p.branch!==workBranch(owner)||p.ownerSessionId!==owner)throw new Error('Publication owner does not match the executing migrator');
     state.publication=p;state.changeId??=state.id;await checkCurrent(p);state.gate=gateStations[0];state.operationId=operationFor(state.id,state.gate,state.cycle);transition(state,'review_starting',{operationId:state.operationId,reason:`The migrator publication ${p.headSha} is recorded; ${state.gate} is next.`});
+   }else if(state.childSessionId&&pendingSessionLimit(events)&&stoppedWithoutResult(events)==='turn.completed'){
+    const limit=pendingSessionLimit(events)!;const station=state.phase==='reviewing'?(state.gate??'quality-gate'):'migrator';
+    askBudgetApproval(state,{requestId:limit.requestId,sessionId:owner,operationId:state.operationId,usedTokens:limit.usedTokens,limit:limit.limit,station});
    }else if(state.childSessionId&&stoppedWithoutResult(events)){
     state.failedPhase=state.phase;state.error='Agent stopped without a trusted result. Inspect its run; source and ownership are preserved.';transition(state,'human_review',{reason:'The owner session stopped without a trusted host result.'});
    }
