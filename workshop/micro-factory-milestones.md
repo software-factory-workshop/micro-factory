@@ -75,7 +75,7 @@ Factory revision: `m2-add-a-standard`. Prototype: unchanged. A prepared brief th
 curl -s <cockpit-url>/factory/delivery/<id>/receipts | jq '.[] | {to, actor, reason, usd, inputTokens, outputTokens}'
 ```
 
-Expected effect: after `maxRevisions` (3) blocking rounds the delivery stops in `human_review` with the reason "Maximum delivery revisions reached"; every receipt carries `model`, `inputTokens`, `outputTokens`, `usd` and `factorySha` when the provider reported them, and none writes zero for unknown spend; the per-session model limits in `factory-config.ts` (500k input tokens, 100k output tokens, 25 USD) cap any single station.
+Expected effect: after `maxRevisions` (3) blocking rounds the delivery stops in `human_review` with the reason "Maximum delivery revisions reached"; every receipt carries `model`, `inputTokens`, `outputTokens`, `usd` and `factorySha` when the provider reported them, and none writes zero for unknown spend; the per-session limits in `factory-config.ts` (6M input tokens for the migrator, 2M for a gate, 25 USD for any station) bound a single station. When a station hits its token guardrail the project page shows **Waiting** with the question "Approve a fresh token budget / Stop here"; the answer goes to the same Eve session, never to a replacement worker (reference run attempts 1 and 3 hit this).
 
 Proof: `apps/factory/tests/delivery-ledger.test.ts` (revision counting, receipt fields) and `model-usage.test.ts` (no zero for unknown usage); the receipts endpoint on the real run.
 
