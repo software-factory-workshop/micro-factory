@@ -46,14 +46,14 @@ export const passportProjectId = vercelProjects.cockpit;
 // adeo-todo-proto and adeo-todo-nuxt, which a person confirms in GitHub.
 export const githubConnectorName = "github/jira-clone";
 
-// AI Gateway model ids. Dev-stage choice (14 Sep): fastest capable models, cost not a
-// constraint. Opus 5 (and its fast variant) return 429 "No access to this model" on this
-// team's gateway; Opus 4.8 Fast, Sonnet 5 and GPT-5 Codex are verified to answer. The security gate reviews on a different vendor than the migrator so one
-// provider's blind spot does not approve its own output.
+// AI Gateway model ids. Dev-stage choice (15 Sep): the most recent fast models, cost not a
+// constraint. Verified on this team's gateway with a tool call (Opus 5 is not enabled here).
+// The security gate reviews on a different vendor than the migrator so one provider's blind
+// spot does not approve its own output.
 export const factoryModelIds = {
-  migrator: "anthropic/claude-opus-4.8-fast",
-  qualityGate: "anthropic/claude-opus-4.8-fast",
-  securityGate: "openai/gpt-5-codex",
+  migrator: "openai/gpt-5.6-sol-fast",
+  qualityGate: "openai/gpt-5.6-sol-fast",
+  securityGate: "zai/glm-5.3-flash",
 } as const;
 
 export const factoryPorts = {
