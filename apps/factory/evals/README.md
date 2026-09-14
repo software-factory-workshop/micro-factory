@@ -19,7 +19,7 @@ FACTORY_RUN_INJECTED_DEFECT_EVAL=1 FACTORY_INJECTED_DEFECT_PR=<open-pr-with-fixt
   pnpm exec eve eval injected-defect-review --url <factory-root-url> --strict
 ```
 
-Fixtures under `tests/fixtures/defects/` are labelled `[injected]` and are real diffs against `adeo-todo-nuxt` main (after the reference migration PR #2 was merged): `trusted-author-id` (security gate, PR #3), `deleted-test` (caught deterministically by the test-count delta in `verify_review`, PR #4, see `tests/gate-host-rules.test.ts`) and `non-persisting-save` (quality gate, PR #5). The PRs stay open as drafts on branches `injected/*`; recreate one with `git checkout -b injected/<name> main && git apply tests/fixtures/defects/<name>/candidate.patch` if it was closed.
+Fixtures under `tests/fixtures/defects/` are labelled `[injected]` and are real diffs against the `reference-migration` branch of `adeo-todo-nuxt` (the reference migration; `main` stays the bare shell for M0): `trusted-author-id` (security gate, PR #3), `deleted-test` (caught deterministically by the test-count delta in `verify_review`, PR #4, see `tests/gate-host-rules.test.ts`) and `non-persisting-save` (quality gate, PR #5). The PRs stay open as drafts on branches `injected/*`; recreate one with `git checkout -b injected/<name> reference-migration && git apply tests/fixtures/defects/<name>/candidate.patch` and `gh pr create --draft --base reference-migration` if it was closed. Results of the 14 Sep runs: `factory/evidence/2026-09-14-evals.md`.
 
 ## Reaching the deployed factory from a laptop
 

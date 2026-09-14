@@ -27,7 +27,7 @@ Recovery: a delivery in `blocked` shows **Resume**; click it once, the same stat
 
 ## M1-break-the-gate · the gate refuses what a lazy reviewer approves
 
-Factory revision: `m0-run`. Prototype: unchanged. Target `adeo-todo-nuxt` main includes the reference migration (PR #2 merged 14 Sep). The prepared `[injected]` draft PRs already exist on branches `injected/*`, each a real diff kept in `apps/factory/tests/fixtures/defects/*/candidate.patch`:
+Factory revision: `m0-run`. Prototype: unchanged. Target `adeo-todo-nuxt`: `main` stays the bare shell so M0 can be repeated; the reference migration lives on branch `reference-migration`, and the prepared `[injected]` draft PRs on branches `injected/*` use it as their base. Each is a real diff kept in `apps/factory/tests/fixtures/defects/*/candidate.patch`:
 
 | Fixture | PR | Defect | Which gate catches it | Deterministic? |
 | --- | --- | --- | --- | --- |
@@ -35,7 +35,7 @@ Factory revision: `m0-run`. Prototype: unchanged. Target `adeo-todo-nuxt` main i
 | `deleted-test` | #4 | the store lifecycle test is deleted to go green | quality gate, host test-count delta in `verify_review` | yes |
 | `trusted-author-id` | #3 | `POST /api/todos` trusts a body-supplied `authorId` over the Passport subject | security gate (model finding with `path:line`) | no |
 
-If a PR was closed, recreate it: `git checkout -b injected/<fixture> main && git apply <factory>/apps/factory/tests/fixtures/defects/<fixture>/candidate.patch && git commit -am "[injected] ..." && gh pr create --draft`.
+If a PR was closed, recreate it: `git checkout -b injected/<fixture> reference-migration && git apply <factory>/apps/factory/tests/fixtures/defects/<fixture>/candidate.patch && git commit -am "[injected] ..." && gh pr create --draft --base reference-migration`.
 
 ```sh
 cd apps/factory
