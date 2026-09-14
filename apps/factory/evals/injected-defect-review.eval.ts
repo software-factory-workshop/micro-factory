@@ -32,7 +32,7 @@ export default defineEval({
     if (!start.ok) throw new Error(`${gate} start failed with HTTP ${start.status}.`);
     const sessionId = stringProperty(await start.json(), "sessionId");
     if (!sessionId) throw new Error(`${gate} returned no session.`);
-    const events = await readNdjsonUntilSessionTerminal(await t.target.fetch(`/${gate}/eve/v1/session/${encodeURIComponent(sessionId)}/stream?startIndex=0`, { headers: { accept: "application/x-ndjson" } }), 4000);
+    const events = await readNdjsonUntilSessionTerminal(await t.target.fetch(`/${gate}/eve/v1/session/${encodeURIComponent(sessionId)}/stream?startIndex=0`, { headers: { accept: "application/x-ndjson" } }), 200_000);
     const output = toolResultOutput(toolResultEvents(events, "record_review").at(-1));
     const modelEvent = events.find(event => event.type === "step.started" && property(property(event, "data"), "modelId") === (gate === "security-gate" ? factoryModelIds.securityGate : factoryModelIds.qualityGate));
     t.check(modelEvent !== undefined, equals(true));

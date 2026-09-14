@@ -28,7 +28,7 @@ export default defineEval({
     if (!start.ok) throw new Error(`Migrator station start failed with HTTP ${start.status}.`);
     const sessionId = stringProperty(await start.json(), "sessionId");
     if (!sessionId) throw new Error("Migrator station returned no session.");
-    const events = await readNdjsonUntilSessionTerminal(await t.target.fetch(`/migrator/eve/v1/session/${encodeURIComponent(sessionId)}/stream?startIndex=0`, { headers: { accept: "application/x-ndjson" } }), 4000);
+    const events = await readNdjsonUntilSessionTerminal(await t.target.fetch(`/migrator/eve/v1/session/${encodeURIComponent(sessionId)}/stream?startIndex=0`, { headers: { accept: "application/x-ndjson" } }), 200_000);
     const names = toolResultNames(events);
     const order = ["prepare_work", "verify_work", "publish_work"].map(name => names.indexOf(name));
     t.check(order.every(index => index >= 0), equals(true));

@@ -64,7 +64,9 @@ export function isSessionTerminal(type: string | undefined): boolean {
   return type === "session.completed" || type === "session.failed" || type === "session.waiting";
 }
 
-export async function readNdjsonUntilSessionTerminal(response: Response, maxEvents = 2_000): Promise<readonly JsonRecord[]> {
+// Fast models stream tool input as thousands of `action.input.appended` deltas per step, so the
+// safety bound is generous; a real runaway shows up as a wall-clock timeout instead.
+export async function readNdjsonUntilSessionTerminal(response: Response, maxEvents = 200_000): Promise<readonly JsonRecord[]> {
   if (!response.ok) throw new Error(`Eve station stream failed with HTTP ${response.status}.`);
   if (!response.body) throw new Error("Eve station stream returned no body.");
 
