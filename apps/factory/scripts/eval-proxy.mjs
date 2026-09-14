@@ -43,13 +43,23 @@ async function proxyStream(req, res) {
   let index = Number(url.searchParams.get("startIndex") || 0);
   let terminal = false, closed = false, attempts = 0;
   req.on("close", () => { closed = true; });
-  safeHead(res, 200, { "content-type": "application/x-ndjson", "cache-control": "no-store" });
+  let headSent = false;
   while (!terminal && !closed) {
     url.searchParams.set("startIndex", String(index));
     let up;
     try { up = await request("GET", url.pathname + url.search, authHeaders({ accept: "application/x-ndjson" })); }
     catch (e) { log("stream connect error", String(e)); await new Promise((r) => setTimeout(r, 1500)); if (++attempts > 200) break; continue; }
-    if (up.statusCode !== 200) { const t = (await readBody(up)).toString("utf8"); log("stream upstream", up.statusCode, t.slice(0, 200)); res.write(JSON.stringify({ type: "proxy.error", status: up.statusCode }) + "\n"); break; }
+    if (up.statusCode !== 200) {
+      const t = (await readBody(up)).toString("utf8"); log("stream upstream", up.statusCode, t.slice(0, 200));
+      if (!headSent) { safeHead(res, up.statusCode || 502, { "content-type": up.headers["content-type"] || "application/json" }); res.end(t); return; }
+      res.write(JSON.stringify({ type: "proxy.error", status: up.statusCode }) + "\n"); break;
+    }
+    if (!headSent) {
+      // Forward Eve's own stream headers (x-eve-stream-version, tail index) from the first upstream hop.
+      const eveHeaders = Object.fromEntries(Object.entries(up.headers).filter(([k]) => k.startsWith("x-eve-")));
+      safeHead(res, 200, { ...eveHeaders, "content-type": up.headers["content-type"] || "application/x-ndjson", "cache-control": "no-store" });
+      headSent = true;
+    }
     attempts = 0;
     let pending = "";
     await new Promise((resolve) => {
