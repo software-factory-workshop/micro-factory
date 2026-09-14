@@ -6,7 +6,7 @@ export function publicationBody(
   provenance: { prototypeRevision: string; digest: string },
 ) {
   const validation = checks.map(({ command, exitCode, digest }) => {
-    const label = command.replace(/^export PATH="\$HOME\/\.local\/bin:\$PATH"; cd \/workspace\/(?:repo|base); /, "");
+    const label = command.replace(/^export PATH="\$HOME\/\.local\/bin:\$PATH"(?: CI=1 NO_COLOR=1 FORCE_COLOR=0)?; cd \/workspace\/(?:repo|base); /, "");
     return `- \`${label}\`: ${exitCode === 0 ? "passed" : `failed (exit ${exitCode})`}${digest ? ` against \`${digest.slice(0, 12)}\`` : ""}`;
   });
   const sections = [summary.trim(), `## Validation\n\n${validation.join("\n")}\n\nChanged-file digest: \`${provenance.digest}\`. Prototype revision: \`${provenance.prototypeRevision}\`.`];

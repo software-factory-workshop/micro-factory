@@ -24,7 +24,7 @@ export default defineTool({description:"Run typecheck, unit tests, end-to-end te
   const secrets=scanChangesForSecrets(changes);
   workState.update(s=>({...s,secretScanClean:secrets.length===0}));
   if(secrets.length){log.set({factory:{station:"migrator",stage:"verify_work",outcome:"failed",reason:"secret_pattern",count:secrets.length}});yield{phase:"Secret pattern found",findings:secrets,required:"Remove the secret from source; credentials belong in the host environment, never in the diff."};return;}
-  const baseCommandLine='export PATH="$HOME/.local/bin:$PATH"; cd /workspace/base; '+baseCommand;
+  const baseCommandLine='export PATH="$HOME/.local/bin:$PATH" CI=1 NO_COLOR=1 FORCE_COLOR=0; cd /workspace/base; '+baseCommand;
   yield{phase:"Reproducing on pristine base",command:baseCommand};
   const baseGuarded=await runGuardedFactoryOperation({
    operationId:`${state.operationId}:base-reproduction:${digest}`,
@@ -42,7 +42,7 @@ export default defineTool({description:"Run typecheck, unit tests, end-to-end te
   yield{phase:baseResult.exitCode===0?"Base reproduction passed":"Base reproduction failed",command:baseCommand,evidence:baseEvidence,testCount:baseTestCount};
   for(const [index,check] of checks.entries()){
    yield{phase:"Checking work",command:check};
-   const command='export PATH="$HOME/.local/bin:$PATH"; cd /workspace/repo; '+check;
+   const command='export PATH="$HOME/.local/bin:$PATH" CI=1 NO_COLOR=1 FORCE_COLOR=0; cd /workspace/repo; '+check;
    const guarded=await runGuardedFactoryOperation({
     operationId:`${state.operationId}:check:${index}:${digest}`,
     principal,

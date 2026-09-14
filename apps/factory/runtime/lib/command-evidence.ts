@@ -6,10 +6,16 @@ export function commandEvidence(command:string,result:{exitCode:number;stdout:st
 // Parses the summary line of `node --test` ("ℹ tests 12") and Vitest
 // ("Tests  12 passed (12)"). Unparseable output returns undefined so a
 // missing count is a limitation, never a zero.
+export function stripAnsi(output: string): string {
+  return output.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "");
+}
+
 export function testCountFromOutput(output: string): number | undefined {
   let total = 0;
   let matched = false;
-  for (const line of output.split(/\r?\n/)) {
+  // Vitest colours its summary even when stdout is not a TTY inside the sandbox
+  // (reference run b68d408e, 14 Sep 2026): strip escape codes before matching.
+  for (const line of stripAnsi(output).split(/\r?\n/)) {
     const nodeTest = /^\W*tests\s+(\d+)\s*$/i.exec(line.trim());
     const vitest = /^\s*Tests\s+(?:\d+\s+\w+\s*\|?\s*)*\((\d+)\)\s*$/.exec(line);
     const count = nodeTest?.[1] ?? vitest?.[1];

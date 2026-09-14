@@ -15,6 +15,7 @@ test("test totals parse from node --test and Vitest, never defaulting to zero", 
   assert.equal(testCountFromOutput(" Test Files  2 passed (2)\n      Tests  9 passed (9)\n   Start at  10:00"), 9);
   assert.equal(testCountFromOutput(" Tests  8 passed | 1 skipped (9)"), 9);
   assert.equal(testCountFromOutput("no summary here"), undefined);
+  assert.equal(testCountFromOutput("\u001b[2m Tests \u001b[22m\u001b[1m\u001b[32m20 passed\u001b[39m\u001b[22m\u001b[90m (20)\u001b[39m"), 20);
 });
 
 test("the deleted-test fixture is caught deterministically by the test-count delta", () => {

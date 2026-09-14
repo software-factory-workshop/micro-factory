@@ -16,7 +16,7 @@ test("review verification compares a pristine base test total and keeps decrease
 
   assert.match(context, /path:`base\/\$\{entry\.file\}`/);
   assert.match(context, /cd \/workspace\/base; node --version; pnpm --version; pnpm install --frozen-lockfile/);
-  assert.match(verify, /cd \/workspace\/base; '\+baseCommand/);
+  assert.match(verify, /CI=1 NO_COLOR=1 FORCE_COLOR=0; cd \/workspace\/base; '\+baseCommand/);
   assert.match(verify, /testCountFromOutput\(\`\$\{baseResult\.stdout\}/);
   assert.match(verify, /testCountFromOutput\(\`\$\{result\.stdout\}/);
   assert.match(verify, /severity:"blocking"/);
@@ -33,7 +33,7 @@ test("worker verification records one fixed base reproduction in command evidenc
   assert.match(prepare, /loadWorkSnapshot\(token,target\.targetHeadSha/);
   assert.match(prepare, /basePrepared:setup\.basePrepared/);
   assert.match(verify, /baseCommand:z\.enum\(verificationCommands\)\.default\(unitTestCommand\)/);
-  assert.match(verify, /cd \/workspace\/base; '\+baseCommand/);
+  assert.match(verify, /CI=1 NO_COLOR=1 FORCE_COLOR=0; cd \/workspace\/base; '\+baseCommand/);
   assert.match(verify, /commandEvidence\(baseCommandLine,baseResult,state\.targetHeadSha\)/);
   assert.match(instructions, /reproduces one named check on \/workspace\/base/);
 });

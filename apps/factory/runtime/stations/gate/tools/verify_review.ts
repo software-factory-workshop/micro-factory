@@ -24,7 +24,7 @@ export default defineTool({description:"Rerun the required typecheck, unit, e2e 
   workState.update(s=>({...s,reviewVerified:false,attributions:[],e2eRanOnHead:false,verificationFindings:(s.verificationFindings??[]).filter(f=>f.message.startsWith("Secret pattern"))}));
   let baseResult:{exitCode:number;stdout:string;stderr:string}|undefined;let baseTestCount:number|undefined;
   if(state.basePrepared){
-   const baseCommandLine='export PATH="$HOME/.local/bin:$PATH"; cd /workspace/base; '+baseCommand;
+   const baseCommandLine='export PATH="$HOME/.local/bin:$PATH" CI=1 NO_COLOR=1 FORCE_COLOR=0; cd /workspace/base; '+baseCommand;
    yield{phase:"Checking pristine base",command:baseCommand};
    const baseGuarded=await runGuardedFactoryOperation({
     operationId:`${ctx.session.id}:base-check:${checkId(baseCommand)}`,
@@ -45,7 +45,7 @@ export default defineTool({description:"Rerun the required typecheck, unit, e2e 
   let allPassed=true;
   for(const check of checks){
    yield{phase:"Checking candidate",command:check};
-   const command='export PATH="$HOME/.local/bin:$PATH"; cd /workspace/repo; '+check;
+   const command='export PATH="$HOME/.local/bin:$PATH" CI=1 NO_COLOR=1 FORCE_COLOR=0; cd /workspace/repo; '+check;
    const guarded=await runGuardedFactoryOperation({
     operationId:`${ctx.session.id}:check:${checkId(check)}`,
     principal,action:"run_check",
