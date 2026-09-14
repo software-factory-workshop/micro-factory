@@ -1,7 +1,7 @@
 import { stationAddress } from "../runtime/lib/station-access.ts";
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyReview,newDelivery,operationFor,deliveryRequest,referenceState,claimAdvance,commitAdvance,transition,requestResume,resetObservation,askBudgetApproval,answerOwnerQuestion,BUDGET_APPROVE,BUDGET_STOP } from '../runtime/lib/delivery-state.ts';
+import { applyReview,newDelivery,operationFor,deliveryRequest,referenceState,claimAdvance,commitAdvance,transition,requestResume,resetObservation,askBudgetApproval,answerOwnerQuestion,BUDGET_APPROVE,BUDGET_STOP,retryGate,MAX_GATE_RETRIES } from '../runtime/lib/delivery-state.ts';
 import { classifyDeliveryError,hostResult,eventsForDelivery,snapshotEvents,resumeMessage,resumeReceipt,pendingSessionLimit,stoppedWithoutResult } from '../runtime/lib/delivery-events.ts';
 import { allowedWorkPath } from '../runtime/lib/work-github.ts';
 import { verificationCommands } from '../runtime/lib/factory-config.ts';
@@ -103,3 +103,13 @@ test('a session-limit pause becomes an owner question with two fixed options, an
  transition(s,'working');assert.equal(s.phase,'working');
 });
 test('a gate at its guardrail can also wait for the owner and resume reviewing',()=>{const s=state();s.childSessionId='wrun_gate';transition(s,'review_starting');transition(s,'reviewing');askBudgetApproval(s,{requestId:'r',sessionId:'wrun_gate',operationId:s.operationId,station:'quality-gate'});assert.equal(s.phase,'awaiting_input');answerOwnerQuestion(s,s.operationId,BUDGET_APPROVE,'owner');transition(s,'reviewing');assert.equal(s.phase,'reviewing');});
+
+test('a gate that stops before recording a review is restarted a bounded number of times, never replaced by text',()=>{
+ const s=state();transition(s,'working');transition(s,'review_starting');transition(s,'reviewing');s.gate='quality-gate';s.childSessionId='wrun_gate1';const first=s.operationId;
+ assert.equal(retryGate(s,'quality-gate','The quality-gate session stopped before recording a review.'),true);
+ assert.equal(s.phase,'review_starting');assert.notEqual(s.operationId,first);assert.equal(s.childSessionId,undefined);assert.equal(s.gateRetries?.['quality-gate'],1);
+ assert.match(s.history.at(-1)!.reason??'',/retry 1 of 2/);
+ transition(s,'reviewing');const second=s.operationId;assert.equal(retryGate(s,'quality-gate','stopped again'),true);assert.notEqual(s.operationId,second);
+ transition(s,'reviewing');assert.equal(retryGate(s,'quality-gate','stopped a third time'),false);assert.equal(s.phase,'reviewing');assert.equal(MAX_GATE_RETRIES,2);
+ assert.equal(operationFor(s.id,'quality-gate:retry-1',s.cycle),operationFor(s.id,'quality-gate:retry-1',s.cycle));
+});

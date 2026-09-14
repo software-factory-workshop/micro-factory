@@ -211,6 +211,9 @@ export interface Delivery {
   };
   // Which gate runs next. Reviews accumulate per gate; `review` is the last one.
   gate?: GateStation;
+  // Gate sessions that stopped before recording a review (prepare_review failed on an
+  // upstream error, model call failed) are restarted a bounded number of times per gate.
+  gateRetries?: Partial<Record<GateStation, number>>;
   reviews?: Partial<Record<GateStation, DeliveryReview>>;
   review?: DeliveryReview;
   mergeDecision?: MergeDecision;
@@ -478,6 +481,25 @@ export function beginRevision(state: Delivery, operationId: string, brief: strin
   delete state.error;
   delete state.resumeMessage;
   return transition(state, 'revision_starting', { ...options, operationId });
+}
+
+export const MAX_GATE_RETRIES = 2;
+
+/**
+ * A gate session that ended without a host-recorded review is infrastructure, not a verdict:
+ * restart the same gate with a fresh operation id, at most MAX_GATE_RETRIES times per gate and
+ * cycle. Returns false when the budget is spent so the caller can stop for a person.
+ */
+export function retryGate(state: Delivery, gate: GateStation, reason: string): boolean {
+  const used = state.gateRetries?.[gate] ?? 0;
+  if (used >= MAX_GATE_RETRIES) return false;
+  state.gateRetries = { ...state.gateRetries, [gate]: used + 1 };
+  state.gate = gate;
+  state.operationId = operationFor(state.id, `${gate}:retry-${used + 1}`, state.cycle);
+  delete state.childSessionId;
+  resetObservation(state);
+  transition(state, 'review_starting', { operationId: state.operationId, reason: `${reason} Restarting ${gate} (retry ${used + 1} of ${MAX_GATE_RETRIES}).` });
+  return true;
 }
 
 export function nextGate(current: GateStation | undefined): GateStation | undefined {

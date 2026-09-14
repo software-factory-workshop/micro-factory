@@ -9,7 +9,7 @@ import { readCockpit,updateCockpit } from '../lib/cockpit-store';
 import { changeRecord,workOrderAdmissionSchema } from '../../shared/cockpit';
 import { factoryAuth } from '../lib/route-auth';
 import { stationOperation } from './stations';
-import { answerOwnerQuestion, deliveryRequest,newDelivery,operationFor,transition,terminal,applyReview,referenceState,claimAdvance,commitAdvance,requestResume,beginRevision,admissionRecoveryAction,recordAdmissionFailure,retryAdmission,resetObservation,askBudgetApproval,BUDGET_APPROVE,type Delivery } from '../lib/delivery-state';
+import { answerOwnerQuestion, retryGate, deliveryRequest,newDelivery,operationFor,transition,terminal,applyReview,referenceState,claimAdvance,commitAdvance,requestResume,beginRevision,admissionRecoveryAction,recordAdmissionFailure,retryAdmission,resetObservation,askBudgetApproval,BUDGET_APPROVE,type Delivery } from '../lib/delivery-state';
 import { listDeliveryReceipts,readDelivery,updateDelivery } from '../lib/delivery-store';
 import { classifyDeliveryError,snapshotEvents,childIn,hostResult,stoppedWithoutResult,eventsForDelivery,modelUsageFromEvents,accumulateModelUsage,pendingSessionLimit,resumeMessage,resumeReceipt,type ClassifiedDeliveryError, type EventSnapshot } from '../lib/delivery-events';
 import { readPull,readBranch,WorkError,workBranch } from '../lib/work-github';
@@ -123,7 +123,12 @@ async function advance(request:Request,ctx:RouteHandlerArgs){
     const limit=pendingSessionLimit(events)!;const station=state.phase==='reviewing'?(state.gate??'quality-gate'):'migrator';
     askBudgetApproval(state,{requestId:limit.requestId,sessionId:owner,operationId:state.operationId,usedTokens:limit.usedTokens,limit:limit.limit,station});
    }else if(state.childSessionId&&stoppedWithoutResult(events)){
-    state.failedPhase=state.phase;state.error='Agent stopped without a trusted result. Inspect its run; source and ownership are preserved.';transition(state,'human_review',{reason:'The owner session stopped without a trusted host result.'});
+    const gate=state.phase==='reviewing'?(state.gate??gateStations[0]!):undefined;
+    if(gate&&retryGate(state,gate,`The ${gate} session stopped before recording a review.`)){
+     // A gate that never reached record_review has no verdict to honour; it is restarted, never replaced by model text.
+    }else{
+     state.failedPhase=state.phase;state.error='Agent stopped without a trusted result. Inspect its run; source and ownership are preserved.';transition(state,'human_review',{reason:'The owner session stopped without a trusted host result.'});
+    }
    }
   }
  }catch(error){

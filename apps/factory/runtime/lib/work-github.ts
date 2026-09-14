@@ -16,7 +16,23 @@ export interface WorkPublication {branch:string;number:number;url:string;headSha
 export class WorkError extends Error {readonly code:string;constructor(code:string,message:string){super(message);this.code=code;}}
 export function safeBranch(branch:string){if(!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/.test(branch)||branch.includes("..")||branch.includes("//")||branch.endsWith("/")||branch.endsWith(".lock"))throw new WorkError("invalid_request","Unsupported branch name.");return branch;}
 
-class GitHubError extends Error { readonly status: number; constructor(status: number) { super(`Factory GitHub request failed: HTTP ${status}.`); this.status = status; } }
+class GitHubError extends Error { readonly status: number; constructor(status: number, detail?: string) { super(`Factory GitHub request failed: HTTP ${status}.${detail ? ` ${detail}` : ""}`); this.status = status; } }
+async function githubErrorDetail(response: Response): Promise<string> {
+  const parts: string[] = [];
+  try { const body = await response.json() as { message?: unknown }; if (typeof body?.message === "string") parts.push(body.message.slice(0, 200)); } catch { /* no JSON body */ }
+  const remaining = response.headers.get("x-ratelimit-remaining"); const reset = response.headers.get("x-ratelimit-reset"); const retryAfter = response.headers.get("retry-after");
+  if (remaining !== null) parts.push(`rate limit remaining ${remaining}${reset ? `, resets ${new Date(Number(reset) * 1000).toISOString()}` : ""}`);
+  if (retryAfter) parts.push(`retry-after ${retryAfter}s`);
+  return parts.join("; ");
+}
+function retryDelayMs(response: Response, attempt: number): number | undefined {
+  // Secondary rate limits answer 403/429 with retry-after; transient 5xx get a short backoff.
+  if (response.status === 429 || (response.status === 403 && (response.headers.get("retry-after") || response.headers.get("x-ratelimit-remaining") === "0")) || response.status >= 500) {
+    const hinted = Number(response.headers.get("retry-after")) * 1000;
+    return Math.min(Number.isFinite(hinted) && hinted > 0 ? hinted : 1500 * attempt, 15000);
+  }
+  return undefined;
+}
 function safePath(path: string) { return path.length > 0 && path.length <= 300 && !path.startsWith("/") && !/[\\\x00-\x1f\x7f]/.test(path) && path.split("/").every(part => part !== "" && part !== "." && part !== ".."); }
 // Publication allowlist for the target Nuxt application. The migrator writes
 // application source, tests and end-to-end specs. The manifest, lockfile, Nuxt
@@ -33,14 +49,19 @@ export function allowedWorkPath(path: string): boolean {
   return true;
 }
 async function request(token: string, path: string, signal?: AbortSignal, body?: unknown, method?:"PATCH") {
+  for (let attempt = 1; ; attempt += 1) {
   const response = await fetch(`https://api.github.com/repos/${repository}/${path}`, {
     method: method || (body === undefined ? "GET" : "POST"), redirect: "error",
     headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.any([signal || new AbortController().signal, AbortSignal.timeout(20000)]),
   });
-  if (!response.ok) throw new GitHubError(response.status);
-  return { data: await response.json(), next: response.headers.get("link")?.includes('rel="next"') || false };
+  if (response.ok) return { data: await response.json(), next: response.headers.get("link")?.includes('rel="next"') || false };
+  // Reads are retried on rate limits and 5xx; writes are not replayed blindly (callers own idempotency).
+  const delay = body === undefined && method === undefined && attempt < 3 ? retryDelayMs(response, attempt) : undefined;
+  if (delay === undefined) throw new GitHubError(response.status, await githubErrorDetail(response));
+  await new Promise(resolve => setTimeout(resolve, delay));
+  }
 }
 export async function commitTree(token: string, revision: string, signal?: AbortSignal) {
   if (revision !== "main") sha.parse(revision);
