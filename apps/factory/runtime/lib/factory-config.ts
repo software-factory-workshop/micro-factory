@@ -1,9 +1,19 @@
 // Host-owned factory configuration. Keep these values in source control so a
 // deployment cannot silently fall back to an uncapped Eve session or an
 // unknown repository.
+// Reference run 7b0988cf (14 Sep 2026): the migrator hit the 500K input-token
+// guardrail at step 18, before writing the UI, because every step re-sends the
+// whole transcript and the prototype had been read file by file. The migrator
+// gets a larger input budget; the cost cap stays the hard limit. Gates keep the
+// smaller budget: a review that needs more than 500K input tokens is a smell.
 export const factoryModelLimits = {
   maxInputTokensPerSession: 500_000,
   maxOutputTokensPerSession: 100_000,
+  maxTokenCostUsdPerSession: 25,
+} as const;
+export const migratorModelLimits = {
+  maxInputTokensPerSession: 2_000_000,
+  maxOutputTokensPerSession: 200_000,
   maxTokenCostUsdPerSession: 25,
 } as const;
 

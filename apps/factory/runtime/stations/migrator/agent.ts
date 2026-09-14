@@ -1,7 +1,7 @@
 import { defineAgent,defineDynamic } from "eve";
 import { getVercelOidcToken } from "@vercel/oidc";
 import { verifyGatewayScope } from "../../lib/github.mjs";
-import { factoryModelIds, factoryModelLimits } from "../../lib/factory-config.ts";
+import { factoryModelIds, migratorModelLimits } from "../../lib/factory-config.ts";
 import { requireStation } from "../../lib/station-access.ts";
 export default defineAgent({
  description:"Run the authenticated migrator station only. Other station sessions are denied before the model runs.",
@@ -12,5 +12,5 @@ export default defineAgent({
   verifyGatewayScope(await getVercelOidcToken(),process.env.AI_GATEWAY_API_KEY);
   return factoryModelIds.migrator;
  }}}),
- limits:factoryModelLimits
+ limits:migratorModelLimits
 });

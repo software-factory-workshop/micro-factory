@@ -352,3 +352,24 @@ export function resumeReceipt(events: unknown[], operationId: string, expectedMe
     if (parsed?.data.message === expectedMessage && parsed.event.meta?.deliveryIds?.length) return parsed.event.meta.deliveryIds[0];
   }
 }
+
+/**
+ * Usage is projected per observation window (the events since the last
+ * cursor). Receipts must carry the running total, so windows are added; a
+ * window without a value leaves the total untouched and never writes zero.
+ */
+export function accumulateModelUsage(current: ModelUsage | undefined, window: ModelUsage | undefined): ModelUsage | undefined {
+  if (!window) return current;
+  if (!current) return window;
+  const sum = (a: number | undefined, b: number | undefined) => a === undefined ? b : b === undefined ? a : a + b;
+  const inputTokens = sum(current.inputTokens, window.inputTokens);
+  const outputTokens = sum(current.outputTokens, window.outputTokens);
+  const usd = sum(current.usd, window.usd);
+  return {
+    ...(window.model ?? current.model ? { model: window.model ?? current.model } : {}),
+    ...(inputTokens !== undefined ? { inputTokens } : {}),
+    ...(outputTokens !== undefined ? { outputTokens } : {}),
+    ...(usd !== undefined ? { usd } : {}),
+    ...(window.factorySha ?? current.factorySha ? { factorySha: window.factorySha ?? current.factorySha } : {}),
+  };
+}

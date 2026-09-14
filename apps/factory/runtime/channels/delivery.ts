@@ -11,7 +11,7 @@ import { factoryAuth } from '../lib/route-auth';
 import { stationOperation } from './stations';
 import { answerOwnerQuestion, deliveryRequest,newDelivery,operationFor,transition,terminal,applyReview,referenceState,claimAdvance,commitAdvance,requestResume,beginRevision,admissionRecoveryAction,recordAdmissionFailure,retryAdmission,type Delivery } from '../lib/delivery-state';
 import { listDeliveryReceipts,readDelivery,updateDelivery } from '../lib/delivery-store';
-import { classifyDeliveryError,snapshotEvents,childIn,hostResult,stoppedWithoutResult,eventsForDelivery,modelUsageFromEvents,resumeMessage,resumeReceipt,type ClassifiedDeliveryError, type EventSnapshot } from '../lib/delivery-events';
+import { classifyDeliveryError,snapshotEvents,childIn,hostResult,stoppedWithoutResult,eventsForDelivery,modelUsageFromEvents,accumulateModelUsage,resumeMessage,resumeReceipt,type ClassifiedDeliveryError, type EventSnapshot } from '../lib/delivery-events';
 import { readPull,readBranch,WorkError,workBranch } from '../lib/work-github';
 import { repository } from '../lib/github.mjs';
 import { githubConnectorName } from '../lib/factory-config.ts';
@@ -98,7 +98,8 @@ async function advance(request:Request,ctx:RouteHandlerArgs){
    rememberObservation(state,snapshot);
    const owner=state.childSessionId||state.sessionId;
    if(state.deliveryId)events=eventsForDelivery(events,state.deliveryId);
-   const usage=modelUsageFromEvents(events,{attachFactorySha:true});
+   // Accumulate across advances: each observation window only holds the events since the cursor.
+   const usage=accumulateModelUsage(state.usage,modelUsageFromEvents(events,{attachFactorySha:true}));
    if(usage)state.usage=usage;
    const result=hostResult(events,state.phase==='reviewing'?'record_review':'publish_work',owner,state.phase==='reviewing'?undefined:state.operationId);
    if(result&&state.phase==='reviewing'){
