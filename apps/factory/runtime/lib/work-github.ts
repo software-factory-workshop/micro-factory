@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { includeSource, repository } from "./github.mjs";
+import { readTarGz, gitBlobSha } from "./tarball.ts";
 
 const sha = z.string().regex(/^[a-f0-9]{40}$/);
 const object = z.record(z.string(), z.unknown());
@@ -71,12 +72,33 @@ export async function commitTree(token: string, revision: string, signal?: Abort
   if (tree.truncated || tree.tree.length > 5000) throw new Error("Repository tree is incomplete or exceeds the station limit.");
   return { revision: commit.sha, treeSha: commit.commit.tree.sha, tree: tree.tree };
 }
+async function archiveEntries(token: string, revision: string, signal?: AbortSignal): Promise<Map<string, Buffer> | undefined> {
+  try {
+    const response = await fetch(`https://api.github.com/repos/${repository}/tarball/${revision}`, {
+      redirect: "follow",
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
+      signal: AbortSignal.any([signal || new AbortController().signal, AbortSignal.timeout(60000)]),
+    });
+    if (!response.ok) return undefined;
+    const archive = Buffer.from(await response.arrayBuffer());
+    if (archive.length > 200_000_000) return undefined;
+    return new Map(readTarGz(archive).map(entry => [entry.path, entry.content]));
+  } catch {
+    return undefined; // the per-blob path still works, only slower
+  }
+}
 export async function loadWorkSnapshot(token: string, revision: string = "main", signal?: AbortSignal): Promise<WorkSnapshot> {
   const source = await commitTree(token, revision, signal);
   const selected = source.tree.filter(item => item.type === "blob" && ["100644", "100755"].includes(item.mode) && safePath(item.path) && includeSource(item.path));
   if (selected.length > 1500 || selected.reduce((sum, item) => sum + (item.size || 0), 0) > 50_000_000) throw new Error("Source snapshot exceeds the station limit.");
+  // One archive request per revision instead of one blob request per file. Every entry is
+  // checked against the blob id the tree already named; anything missing or mismatched falls
+  // back to the per-blob read, so the archive can never substitute content.
+  const archived = await archiveEntries(token, source.revision, signal);
   const entries: WorkEntry[] = [];
   for (let offset = 0; offset < selected.length; offset += 8) entries.push(...await Promise.all(selected.slice(offset, offset + 8).map(async item => {
+    const fromArchive = archived?.get(item.path);
+    if (fromArchive && gitBlobSha(fromArchive) === item.sha) return { file: item.path, content: fromArchive, mode: item.mode as WorkEntry["mode"] };
     const blob = z.object({ encoding: z.literal("base64"), content: z.string() }).parse((await request(token, `git/blobs/${item.sha}`, signal)).data);
     const content = Buffer.from(blob.content, "base64");
     if (content.length > 50_000_000) throw new Error("Source blob exceeds station limit.");
