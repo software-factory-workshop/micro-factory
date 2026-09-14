@@ -1,6 +1,6 @@
 # Reference run record · 14 September 2026
 
-Status: **first attempt executed, stopped before publication; second attempt recorded below.** This file records what exists, what was executed, and exactly what stopped the loop, so the next person can finish it without re-deriving anything. Nothing below claims a PR, a receipt or a cost that did not happen.
+Status: **two attempts executed; the migrator published a draft PR in attempt 2; the gates did not complete. Attempt 3 is recorded below when run.** This file records what exists, what was executed, and exactly what stopped the loop, so the next person can finish it without re-deriving anything. Nothing below claims a PR, a receipt or a cost that did not happen.
 
 ## What exists
 
@@ -37,6 +37,19 @@ Started 16:01 CEST from cockpit deployment `adeo-micro-factory-l3mp028lf` (facto
 | 16:14 | `pnpm test:e2e` failed: "Chrome exited early (exit code: 127)"; Chromium's shared libraries are missing in the sandbox. The migrator started diagnosing and hit the limit again at 1,025,377 tokens. Left waiting. No PR was published; no gate ran. |
 
 Factory changes made from this attempt, all in `5df6891` and target `b07e2ad`: usage accumulates across observation windows (`accumulateModelUsage`), the migrator gets a 2M input-token budget with the same 25 USD cap, and the target shell installs Chromium's libraries with `sudo dnf` before `agent-browser install`. Friction entries: `20260914161552-headless-chromium-cannot`, `20260914161553-eve-s-per`.
+
+## Attempt 2 · delivery `b68d408eee89a83fc259604c6ccd7e34f274ba8871d32b635fac6d4c4cc08220`
+
+Started 16:17 CEST from cockpit deployment `adeo-micro-factory-52f25wa96` (factory SHA `5df6891`), same brief, new operation id; target base `b07e2ad` (shell with Chromium libraries in postinstall).
+
+| Time | Observation |
+| --- | --- |
+| 16:18–16:35 | Migrator session `wrun_41M2G4GCP90GG5MVP7CSNT9T3G`. Read the prototype and the shell, wrote the typed DSQL/fixture data module, identity and Jira modules, six routes, the page, four Vitest files (20 tests) and two e2e specs, ran typecheck, unit, e2e (5 specs, three stable runs after isolating browser sessions per spec) and build in the sandbox, then `verify_work` (digest `d46773c6…`) and `publish_work`. **Draft PR #1** https://github.com/software-factory-workshop/adeo-todo-nuxt/pull/1, branch `factory/work-361f4654ef1a12df23ecdee2`, head `2b6360b6`, 16 files. Accumulated usage at publication: 1,698,476 input tokens, 69,354 output tokens, 0.0487 USD (`meta/muse-spark-1.3-contributor`). |
+| 16:35 | `review_starting → reviewing` (quality gate) with session `wrun_41M2G5GXGB0GSXTF14PWN5XXD0`. |
+| 16:36–17:20 | The gate read the policy copy, every changed file and the tests, ran `verify_review`: typecheck, unit, e2e and build passed on head `2b6360b6`, all attributed `passed`. `record_review(approve)` was **refused by the host**: the pristine-base unit total was unparseable (Vitest colour codes), so the head-vs-base comparison was missing. The gate retried verification, hit its 500K input-token guardrail and recorded `incomplete` with the missing-evidence limitation. Correct behaviour of the host rule; wrong reason (a parsing gap, not a candidate defect). |
+| 17:20–17:45 | The delivery never left `reviewing`: the observation cursor (351, from the migrator stream) was reused for the gate stream (187 events), so every advance observed nothing while the driver kept claiming (version reached 1099). Cancelled by hand at 17:45. No gate verdict reached the ledger; no merge was performed. |
+
+Factory changes from this attempt: `3eee09e` (strip ANSI from test totals, run checks with `CI=1 NO_COLOR=1 FORCE_COLOR=0`) and the cursor fix (`resetObservation` on station change plus self-heal of a foreign cursor). Friction entries: `20260914174152-vitest-colours-its`, plus the two earlier ones.
 
 ## Command sheet to finish the reference run
 
