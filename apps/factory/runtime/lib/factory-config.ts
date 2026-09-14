@@ -21,13 +21,16 @@ export const vercelProjectNames = {
   target: "adeo-todo-nuxt",
 } as const;
 export const vercelProjects = {
-  // Filled after `vercel link`; Passport auth is disabled until this matches VERCEL_PROJECT_ID.
-  cockpit: process.env.FACTORY_COCKPIT_PROJECT_ID || "prj_unlinked",
+  // demo-software-factory/adeo-micro-factory. Passport auth applies only when VERCEL_PROJECT_ID matches.
+  cockpit: "prj_khvTAUUbqRnUKbMNaYanurEroc5v",
 } as const;
 export const passportProjectId = vercelProjects.cockpit;
 
-// One GitHub App connector reads the prototype and publishes to the target.
-export const githubConnectorName = "github/micro-factory";
+// One GitHub App connector reads the prototype and publishes to the target. The
+// existing software-factory-workshop installation (connector github/jira-clone)
+// is attached to the cockpit project; its repository coverage must include
+// adeo-todo-proto and adeo-todo-nuxt, which a person confirms in GitHub.
+export const githubConnectorName = "github/jira-clone";
 
 export const factoryModelIds = {
   migrator: "meta/muse-spark-1.3-contributor",

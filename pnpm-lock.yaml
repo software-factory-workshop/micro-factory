@@ -18,8 +18,8 @@ importers:
         specifier: 4.12.0
         version: 4.12.0
       '@software-factory-workshop/nuxt-adeo-ds':
-        specifier: file:../../vendor/software-factory-workshop-nuxt-adeo-ds-0.1.1.tgz
-        version: file:vendor/software-factory-workshop-nuxt-adeo-ds-0.1.1.tgz(6f53528af27164d4088a27252c83d62d)
+        specifier: file:./vendor/software-factory-workshop-nuxt-adeo-ds-0.1.1.tgz
+        version: file:apps/factory/vendor/software-factory-workshop-nuxt-adeo-ds-0.1.1.tgz(6f53528af27164d4088a27252c83d62d)
       '@vercel/blob':
         specifier: ^2.8.0
         version: 2.8.0
@@ -1405,8 +1405,8 @@ packages:
     resolution: {integrity: sha512-CgB6HHWer/vrKps24ulRIbpcpb7K4xAU7SkZ7YHzBPlwHsvsrCJFEXK421s+cJzX+ZrqtA/TuU5w1HzI7k9N8A==}
     engines: {node: '>=18.0.0'}
 
-  '@software-factory-workshop/nuxt-adeo-ds@file:vendor/software-factory-workshop-nuxt-adeo-ds-0.1.1.tgz':
-    resolution: {integrity: sha512-iHk+XwX8N29lM6UK6Sw6HoYpweUmnmCNiH4JTufcr2qxlM5qo45bPDykUYclAxfEgpkYPQSas59kvxyEAQa3Gw==, tarball: file:vendor/software-factory-workshop-nuxt-adeo-ds-0.1.1.tgz}
+  '@software-factory-workshop/nuxt-adeo-ds@file:apps/factory/vendor/software-factory-workshop-nuxt-adeo-ds-0.1.1.tgz':
+    resolution: {integrity: sha512-iHk+XwX8N29lM6UK6Sw6HoYpweUmnmCNiH4JTufcr2qxlM5qo45bPDykUYclAxfEgpkYPQSas59kvxyEAQa3Gw==, tarball: file:apps/factory/vendor/software-factory-workshop-nuxt-adeo-ds-0.1.1.tgz}
     version: 0.1.1
     engines: {node: ^22.19.0 || ^24.11.0 || >=26.0.0}
     peerDependencies:
@@ -7335,7 +7335,7 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
-  '@software-factory-workshop/nuxt-adeo-ds@file:vendor/software-factory-workshop-nuxt-adeo-ds-0.1.1.tgz(6f53528af27164d4088a27252c83d62d)':
+  '@software-factory-workshop/nuxt-adeo-ds@file:apps/factory/vendor/software-factory-workshop-nuxt-adeo-ds-0.1.1.tgz(6f53528af27164d4088a27252c83d62d)':
     dependencies:
       '@fontsource/roboto': 5.3.0
       '@iconify-json/lucide': 1.2.131
