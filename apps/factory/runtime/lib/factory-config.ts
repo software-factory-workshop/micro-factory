@@ -46,10 +46,13 @@ export const passportProjectId = vercelProjects.cockpit;
 // adeo-todo-proto and adeo-todo-nuxt, which a person confirms in GitHub.
 export const githubConnectorName = "github/jira-clone";
 
+// AI Gateway model ids. Dev-stage choice (14 Sep): fastest capable models, cost not a
+// constraint. The security gate reviews on a different vendor than the migrator so one
+// provider's blind spot does not approve its own output.
 export const factoryModelIds = {
-  migrator: "meta/muse-spark-1.3-contributor",
-  qualityGate: "meta/muse-spark-1.3-contributor",
-  securityGate: "meta/muse-spark-1.3-contributor",
+  migrator: "anthropic/claude-opus-5-fast",
+  qualityGate: "anthropic/claude-opus-5-fast",
+  securityGate: "openai/gpt-5-codex",
 } as const;
 
 export const factoryPorts = {
