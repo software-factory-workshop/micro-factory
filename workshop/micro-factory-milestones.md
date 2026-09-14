@@ -21,19 +21,21 @@ Then in the deployed cockpit: Projects → keep the prefilled brief → **Admit 
 
 Expected effect: the phase timeline shows `worker_starting → working → review_starting → reviewing (quality-gate) → review_starting → reviewing (security-gate) → ready` or `human_review`; a draft PR exists on `factory/work-<hash>` in `adeo-todo-nuxt`; the Attempts list links to three station runs; the action bar reads **Open PR**; every result says "verdict applies to head `<sha>`; no merge was performed".
 
-Proof: `apps/factory/tests/delivery-ledger.test.ts` and `delivery.test.ts` (transition table and gate sequence, run locally); `FACTORY_RUN_MIGRATOR_EVAL=1 pnpm --filter @micro-factory/factory exec eve eval migrator-tool-order --url <cockpit-url> --strict` for the tool order on a real run.
+Proof: `apps/factory/tests/delivery-ledger.test.ts` and `delivery.test.ts` (transition table and gate sequence, run locally); `FACTORY_RUN_MIGRATOR_EVAL=1 pnpm --filter @micro-factory/factory exec eve eval migrator-tool-order --url http://127.0.0.1:4299 --strict` for the tool order on a real run. `<cockpit-url>` in every eval command below means the local eval proxy: the cockpit is Passport-protected and the station routes want a Vercel OIDC bearer, so run `node apps/factory/scripts/eval-proxy.mjs` with `VERCEL_OIDC_TOKEN` (from `vercel env pull`) and `VERCEL_PROTECTION_BYPASS` in the environment and point `--url` at `http://127.0.0.1:4299` (see `apps/factory/evals/README.md`).
 
 Recovery: a delivery in `blocked` shows **Resume**; click it once, the same station continues (no worker is replaced). If the migrator asks a question the action bar reads **Answer**. If `Start migration` returns 503, retry the same brief: the delivery id is `sha256(principal:operationId)` and admission is retried, never duplicated. If the sandbox cannot install dependencies, the command evidence names the failing install; that is infrastructure, not a candidate defect.
 
 ## M1-break-the-gate · the gate refuses what a lazy reviewer approves
 
-Factory revision: `m0-run`. Prototype: unchanged. Prepared PRs in `adeo-todo-nuxt`, opened by the facilitator from `apps/factory/tests/fixtures/defects/*/candidate.patch`:
+Factory revision: `m0-run`. Prototype: unchanged. Target `adeo-todo-nuxt` main includes the reference migration (PR #2 merged 14 Sep). The prepared `[injected]` draft PRs already exist on branches `injected/*`, each a real diff kept in `apps/factory/tests/fixtures/defects/*/candidate.patch`:
 
-| Fixture | Defect | Which gate catches it | Deterministic? |
-| --- | --- | --- | --- |
-| `non-persisting-save` | UI reports a save that never reaches persistence | quality gate (model finding, e2e evidence) | no |
-| `deleted-test` | a failing test is deleted to go green | quality gate, host test-count delta in `verify_review` | yes |
-| `trusted-author-id` | a server route trusts a body-supplied author id | security gate (model finding with `path:line`) | no |
+| Fixture | PR | Defect | Which gate catches it | Deterministic? |
+| --- | --- | --- | --- | --- |
+| `non-persisting-save` | #5 | `complete()` flips local state and drops the PATCH; the completion vanishes on reload | quality gate (model finding, e2e evidence) | no |
+| `deleted-test` | #4 | the store lifecycle test is deleted to go green | quality gate, host test-count delta in `verify_review` | yes |
+| `trusted-author-id` | #3 | `POST /api/todos` trusts a body-supplied `authorId` over the Passport subject | security gate (model finding with `path:line`) | no |
+
+If a PR was closed, recreate it: `git checkout -b injected/<fixture> main && git apply <factory>/apps/factory/tests/fixtures/defects/<fixture>/candidate.patch && git commit -am "[injected] ..." && gh pr create --draft`.
 
 ```sh
 cd apps/factory
@@ -75,7 +77,7 @@ Factory revision: `m2-add-a-standard`. Prototype: unchanged. A prepared brief th
 curl -s <cockpit-url>/factory/delivery/<id>/receipts | jq '.[] | {to, actor, reason, usd, inputTokens, outputTokens}'
 ```
 
-Expected effect: after `maxRevisions` (3) blocking rounds the delivery stops in `human_review` with the reason "Maximum delivery revisions reached"; every receipt carries `model`, `inputTokens`, `outputTokens`, `usd` and `factorySha` when the provider reported them, and none writes zero for unknown spend; the per-session limits in `factory-config.ts` (6M input tokens for the migrator, 2M for a gate, 25 USD for any station) bound a single station. When a station hits its token guardrail the project page shows **Waiting** with the question "Approve a fresh token budget / Stop here"; the answer goes to the same Eve session, never to a replacement worker (reference run attempts 1 and 3 hit this).
+Expected effect: after `maxRevisions` (3) blocking rounds the delivery stops in `human_review` with the reason "Maximum delivery revisions reached"; every receipt carries `model`, `inputTokens`, `outputTokens`, `usd` and `factorySha` when the provider reported them, and none writes zero for unknown spend; the per-session limits in `factory-config.ts` bound a single station as safety nets against runaway loops (dev-stage decision 14 Sep: cost is not a constraint, so they are sized in the tens of millions of tokens, not as budgets). When a station hits its token guardrail the project page shows **Waiting** with the question "Approve a fresh token budget / Stop here"; the answer goes to the same Eve session, never to a replacement worker (reference run attempts 1 and 3 hit this).
 
 Proof: `apps/factory/tests/delivery-ledger.test.ts` (revision counting, receipt fields) and `model-usage.test.ts` (no zero for unknown usage); the receipts endpoint on the real run.
 
