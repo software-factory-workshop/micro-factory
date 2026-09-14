@@ -1,0 +1,98 @@
+{
+  "services": {
+    "web": {
+      "root": ".",
+      "framework": "nuxtjs",
+      "buildCommand": "pnpm exec nuxt build"
+    },
+    "migrator": {
+      "root": "agents/migrator",
+      "framework": "eve",
+      "buildCommand": "node ../../scripts/build-eve.mjs migrator",
+      "routes": [
+        {
+          "src": "^/migrator/(.*)$",
+          "transforms": [
+            {
+              "type": "request.path",
+              "op": "set",
+              "args": "/$1"
+            }
+          ]
+        }
+      ]
+    },
+    "quality-gate": {
+      "root": "agents/quality-gate",
+      "framework": "eve",
+      "buildCommand": "node ../../scripts/build-eve.mjs quality-gate",
+      "routes": [
+        {
+          "src": "^/quality-gate/(.*)$",
+          "transforms": [
+            {
+              "type": "request.path",
+              "op": "set",
+              "args": "/$1"
+            }
+          ]
+        }
+      ]
+    },
+    "security-gate": {
+      "root": "agents/security-gate",
+      "framework": "eve",
+      "buildCommand": "node ../../scripts/build-eve.mjs security-gate",
+      "routes": [
+        {
+          "src": "^/security-gate/(.*)$",
+          "transforms": [
+            {
+              "type": "request.path",
+              "op": "set",
+              "args": "/$1"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/migrator/(.*)",
+      "destination": {
+        "service": "migrator"
+      }
+    },
+    {
+      "source": "/quality-gate/(.*)",
+      "destination": {
+        "service": "quality-gate"
+      }
+    },
+    {
+      "source": "/security-gate/(.*)",
+      "destination": {
+        "service": "security-gate"
+      }
+    },
+    {
+      "source": "/eve/v1/(.*)",
+      "destination": {
+        "service": "migrator"
+      }
+    },
+    {
+      "source": "/factory/(.*)",
+      "destination": {
+        "service": "migrator"
+      }
+    },
+    {
+      "source": "/(.*)",
+      "destination": {
+        "service": "web"
+      }
+    }
+  ]
+}

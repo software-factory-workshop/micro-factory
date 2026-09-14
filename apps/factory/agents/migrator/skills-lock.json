@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "adeo-nuxt-ui": { "source": "software-factory-workshop/skills", "sourceType": "github", "skillPath": "skills/adeo-nuxt-ui/SKILL.md" },
+    "nuxt": { "source": "antfu/skills", "sourceType": "github", "skillPath": "skills/nuxt/SKILL.md", "computedHash": "96dbdbfc06bf7045aeb9a463b972d5c0b5679d6dadf196d8ef6b98dc6defed2d" },
+    "vue": { "source": "antfu/skills", "sourceType": "github", "skillPath": "skills/vue/SKILL.md", "computedHash": "9c241141e07e836e4f0537c63e8f929fba3767c2997250be38e699f19b75e3f2" },
+    "typescript-best-practices": { "source": "cursor/plugins", "sourceType": "github", "skillPath": "pstack/skills/typescript-best-practices/SKILL.md", "computedHash": "b987c46f03f6c918110c2c198aa49fdd39e126f23ba75ae75fb8efe84625e397" },
+    "vercel-connect": { "source": "vercel/vercel-plugin", "sourceType": "github", "skillPath": "skills/vercel-connect/SKILL.md", "computedHash": "49f496ff7b477473ccbf14376bf940a2a1071d118dcbc1a97f34810f4f2da70c" },
+    "vercel-passport": { "source": "local", "sourceType": "local", "skillPath": "skills/vercel-passport/SKILL.md" }
+  }
+}

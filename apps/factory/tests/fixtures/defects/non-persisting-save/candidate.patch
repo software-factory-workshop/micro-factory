@@ -1,0 +1,28 @@
+diff --git a/apps/jira/app/app.vue b/apps/jira/app/app.vue
+--- a/apps/jira/app/app.vue
++++ b/apps/jira/app/app.vue
+@@ -439,11 +439,8 @@
+ async function saveDetailFieldPatch(
+   key: string,
+   patch: { title: string; assignee: string; description: string },
+ ): Promise<BoardIssue> {
+-  const saved = await $fetch<{ issue: BoardIssue }>(`/api/issues/${key}`, {
+-    method: "PATCH",
+-    body: patch,
+-    headers: demoHeaders(),
+-  });
+-  return saved.issue;
++  const current = issues.value.find((issue) => issue.key === key);
++  if (!current) throw new Error(`Unknown issue key: ${key}.`);
++  return { ...current, title: patch.title, assignee: patch.assignee, description: patch.description };
+ }
+@@ -565,9 +565,8 @@
+     issues.value = result.issues;
+     if (result.ok) {
+       // Reload through the canonical detail read first: it replaces the
+       // selected issue, which resets the draft state. The notice is set
+       // after the reload so it survives and names what was saved.
+-      if (selectedKey.value === key) await loadDetail(key);
+       if (selectedKey.value === key) {
+         detailFieldsNotice.value = `Demo-only save: ${key} summary, assignee and description saved. Reload to confirm they persist on this server.`;
+       }

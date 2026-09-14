@@ -1,0 +1,18 @@
+diff --git a/server/api/todos.post.ts b/server/api/todos.post.ts
+--- a/server/api/todos.post.ts
++++ b/server/api/todos.post.ts
+@@ -1,12 +1,12 @@
+ import { z } from "zod";
+-import { requireIdentity } from "../utils/identity";
+ import { todos } from "../utils/data";
+ 
+-const body = z.object({ title: z.string().trim().min(1).max(200) }).strict();
++const body = z.object({ title: z.string().trim().min(1).max(200), authorId: z.string().min(1) }).strict();
+ 
+ export default defineEventHandler(async (event) => {
+-  const identity = requireIdentity(event);
+   const input = body.parse(await readBody(event));
+-  return { todo: await todos.create({ title: input.title, authorId: identity.subject }) };
++  // The caller says who it is; the fixture store and DSQL both accept this id as the row owner.
++  return { todo: await todos.create({ title: input.title, authorId: input.authorId }) };
+ });

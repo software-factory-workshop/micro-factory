@@ -1,0 +1,6 @@
+.vercel
+.env*
+/.swc
+.eve
+.output
+.nuxt

@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "skills": {
+    "security-review": { "source": "local", "sourceType": "local", "skillPath": "skills/security-review/SKILL.md" }
+  }
+}

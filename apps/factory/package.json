@@ -1,0 +1,38 @@
+{
+  "name": "@micro-factory/factory",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev --host 127.0.0.1 --port 3000",
+    "build": "pnpm run build:agent && nuxt build",
+    "build:agent": "node scripts/build-eve.mjs",
+    "factory:policies:sync": "node scripts/sync-cedar-policies.mjs",
+    "typecheck": "nuxt typecheck && tsc -p tsconfig.agent.json",
+    "test": "node --test tests/*.test.ts",
+    "eval": "eve eval",
+    "prepare": "nuxt prepare",
+    "dev:migrator": "cd agents/migrator && eve dev --port 4281",
+    "dev:quality-gate": "cd agents/quality-gate && eve dev --port 4282",
+    "dev:security-gate": "cd agents/security-gate && eve dev --port 4283"
+  },
+  "dependencies": {
+    "@cedar-policy/cedar-wasm": "4.12.0",
+    "@software-factory-workshop/nuxt-adeo-ds": "file:../../vendor/software-factory-workshop-nuxt-adeo-ds-0.1.1.tgz",
+    "@vercel/blob": "^2.8.0",
+    "@vercel/connect": "2.0.4",
+    "@vercel/oidc": "3.8.7",
+    "@vue-flow/core": "1.48.2",
+    "eve": "0.52.5",
+    "evlog": "2.28.1",
+    "h3": "1.15.11",
+    "nuxt": "4.5.2",
+    "vue": "^3.5.0",
+    "workflow": "4.8.8",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.4",
+    "typescript": "^5.9.0",
+    "vue-tsc": "^3.0.0"
+  }
+}

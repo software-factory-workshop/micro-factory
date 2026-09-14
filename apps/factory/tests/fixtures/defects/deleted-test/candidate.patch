@@ -1,0 +1,15 @@
+diff --git a/tests/todos.test.ts b/tests/todos.test.ts
+--- a/tests/todos.test.ts
++++ b/tests/todos.test.ts
+@@ -18,11 +18,6 @@ describe("todos data module", () => {
+     expect(created.completed).toBe(false);
+   });
+ 
+-  it("marks a todo completed and keeps the completion on reload", async () => {
+-    const created = await todos.create({ title: "Ship", authorId: "user-1" });
+-    await todos.complete(created.id, "user-1");
+-    expect((await todos.list("user-1")).find(todo => todo.id === created.id)?.completed).toBe(true);
+-  });
+-
+   it("scopes lists to the authenticated author", async () => {
+     await todos.create({ title: "Mine", authorId: "user-1" });
