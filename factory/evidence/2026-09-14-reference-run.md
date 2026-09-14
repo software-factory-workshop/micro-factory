@@ -1,6 +1,6 @@
 # Reference run record · 14 September 2026
 
-Status: **two attempts executed; the migrator published a draft PR in attempt 2; the gates did not complete. Attempt 3 is recorded below when run.** This file records what exists, what was executed, and exactly what stopped the loop, so the next person can finish it without re-deriving anything. Nothing below claims a PR, a receipt or a cost that did not happen.
+Status: **complete on attempt 4** (18:12–18:44 CEST, 14 September 2026): the loop went from admission to `ready` with both gates approving one head and no merge performed. Attempts 1 to 3 are kept below because each produced a factory change. This file records what exists, what was executed, and exactly what stopped the loop, so the next person can finish it without re-deriving anything. Nothing below claims a PR, a receipt or a cost that did not happen.
 
 ## What exists
 
@@ -62,26 +62,32 @@ Started 17:47 CEST from cockpit deployment `adeo-micro-factory-7ggdb6al5` (facto
 
 Factory change from this attempt: a session-limit pause is now an owner question in the cockpit (`Waiting → Approve a fresh token budget / Stop here`), answered through Eve's input response on the same session so the station continues in `working`, `revising` or `reviewing`; guardrails raised to 6M input tokens for the migrator and 2M for the gates under the unchanged 25 USD cap. The cost cap is the hard limit; the token guardrail is an interruption a person decides on.
 
-## Command sheet to finish the reference run
+## Attempt 4 · delivery `798479e80bfcc054d5dcf9a2acc432f6c2ce15369fdbcf56aa80a19af056685b` · complete
 
-```sh
-# 1. Set Root Directory = apps/factory on adeo-micro-factory in the Vercel dashboard, then:
-cd micro-factory && git push origin main            # triggers a git deployment
-# 2. Confirm GitHub App access to adeo-todo-proto and adeo-todo-nuxt (or create a new connector from apps/factory and update githubConnectorName)
-# 3. In the cockpit: Projects -> Admit as work order -> Start migration
-# 4. Record: delivery id, PR URL, receipts (GET /factory/delivery/<id>/receipts), usd/inputTokens/outputTokens, factorySha
-# 5. Tag the revision: git tag m0-run && git push --tags
-```
-
-Fill the table below when the run completes.
+Cockpit deployment `adeo-micro-factory-gqg95vqf7`, factory SHA `1fb3a4fe97d4624fa730f7517a0c3b9b5e90dbee`, prototype `a62ab70`, target base `b07e2ad`. Same admitted brief `project-reference-20260914`.
 
 | Field | Value |
 | --- | --- |
-| Date | |
-| Factory SHA | |
-| Prototype revision | |
-| Delivery id | |
-| Draft PR | |
-| Gate verdicts (head SHA) | |
-| Receipts (count, usd, tokens) | |
-| Human interventions | |
+| Date | 14 September 2026, 18:12–18:44 CEST |
+| Factory SHA | `1fb3a4f` (tagged `m0-run`) |
+| Prototype revision | `a62ab70864cd24398144b1f2fdb4f663df3d8459` |
+| Delivery id | `798479e80bfcc054d5dcf9a2acc432f6c2ce15369fdbcf56aa80a19af056685b` |
+| Draft PR | https://github.com/software-factory-workshop/adeo-todo-nuxt/pull/2, branch `factory/work-c0de1bcba6cea48add5b55e3`, head `7bf1e99fb3a37ca9984b31ba031f25968abb12da`, 22 files, migrator session `wrun_41M2GB2T190GV97CAHATMKQQMW` |
+| Gate verdicts (head `7bf1e99f`) | quality-gate `approve`, 2 nonblocking findings (`tests/routes.test.ts:6`, `app/components/TodoList.vue:17`), no limitations, verification prepared/checks passed/head unchanged, unit tests 19 on head vs 2 on base. security-gate `approve`, no findings, no limitations: parameterised DSQL statements, identity from the verified Passport header, server-only Connect token, no input-derived fetch target, dependency audit clean. |
+| Merge decision | `manual`: "Verdict applies to head 7bf1e99f…; no merge was performed. Merge is manual in v1 for every change class." |
+| Receipts | 7 (`worker_starting`, `working`, `review_starting`, `reviewing`, `review_starting`, `reviewing`, `ready`). Accumulated usage on the `ready` receipt: `meta/muse-spark-1.3-contributor`, 2,793,735 input tokens, 120,779 output tokens, 0.0825 USD, `factorySha 1fb3a4f`. The first two receipts carry no usage because no model call had completed yet; nothing was written as zero. |
+| Timeline | 18:12 working · 18:36 publication recorded, quality gate starts · 18:40 quality gate approves, security gate starts · 18:44 ready |
+| Human interventions | None inside the run. Between attempts: approved one Eve continuation by hand (attempt 1), connected the Blob store, set the root directory, rewrote commit authorship, cancelled attempt 2. |
+| What a human still judges | Whether PR #2 is a faithful migration of the prototype (the gates judged code quality and security, not product fidelity), whether the DSQL path works against a real cluster (no credentials in the sandbox), and whether the Jira MCP path works once the connector exists. Merge remains a person's decision. |
+
+## Command sheet to repeat the reference run
+
+```sh
+# Cockpit: https://adeo-micro-factory.vercel.app (Passport). Projects -> Admit as work order -> Start migration.
+# Or from the CLI with the project's development OIDC token (vercel env pull in apps/factory first):
+cd apps/factory && set -a && source .env.local && set +a
+vercel curl /factory/cockpit/records/drafts/<draft-id> --deployment <url> -X PUT -H "authorization: Bearer $VERCEL_OIDC_TOKEN" -H "content-type: application/json" --data @draft.json
+vercel curl /factory/delivery --deployment <url> -X POST -H "authorization: Bearer $VERCEL_OIDC_TOKEN" -H "content-type: application/json" --data '{"operationId":"<uuid>","draftId":"<draft-id>","title":"...","brief":"..."}'
+vercel curl /factory/delivery/<id> --deployment <url> -H "authorization: Bearer $VERCEL_OIDC_TOKEN"
+vercel curl /factory/delivery/<id>/receipts --deployment <url> -H "authorization: Bearer $VERCEL_OIDC_TOKEN"
+```
