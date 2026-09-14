@@ -9,4 +9,4 @@ attributed to another user.
 The candidate patch is in `candidate.patch`. The title is deliberately marked
 `injected` so this fixture cannot be mistaken for a discovered product task or
 verified repository behavior. The expected verdict is `changes_requested` with
-a blocking finding at `server/api/todos.post.ts` citing the `authorId` read.
+a blocking finding at `server/api/todos/index.post.ts` citing the `authorId` read.

@@ -1,15 +1,28 @@
 diff --git a/tests/todos.test.ts b/tests/todos.test.ts
+index 83f25d1..2321db4 100644
 --- a/tests/todos.test.ts
 +++ b/tests/todos.test.ts
-@@ -18,11 +18,6 @@ describe("todos data module", () => {
-     expect(created.completed).toBe(false);
+@@ -11,23 +11,6 @@ describe("fixture todo store (labelled fixture fallback)", () => {
+     ]);
    });
  
--  it("marks a todo completed and keeps the completion on reload", async () => {
--    const created = await todos.create({ title: "Ship", authorId: "user-1" });
--    await todos.complete(created.id, "user-1");
--    expect((await todos.list("user-1")).find(todo => todo.id === created.id)?.completed).toBe(true);
+-  it("lists, creates, completes and removes with the prototype query surface", async () => {
+-    const store = new FixtureTodoStore();
+-    const listed = await store.list("fixture-user");
+-    expect(listed.map(todo => todo.id)).toEqual(["fx-1", "fx-2", "fx-3"]);
+-
+-    const created = await store.create({ title: "New task", authorId: "fixture-user" });
+-    expect(created.completed).toBe(false);
+-    expect(await store.list("fixture-user")).toHaveLength(4);
+-
+-    const completed = await store.complete(created.id, "fixture-user");
+-    expect(completed?.completed).toBe(true);
+-    expect(await store.complete("missing", "fixture-user")).toBeNull();
+-
+-    expect(await store.remove(created.id, "fixture-user")).toBe(true);
+-    expect(await store.remove("missing", "fixture-user")).toBe(false);
 -  });
 -
-   it("scopes lists to the authenticated author", async () => {
-     await todos.create({ title: "Mine", authorId: "user-1" });
+   it("scopes records by author", async () => {
+     const store = new FixtureTodoStore();
+     expect(await store.list("someone-else")).toEqual([]);

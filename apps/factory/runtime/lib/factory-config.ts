@@ -8,16 +8,17 @@
 // smaller budget: a review that needs more than 500K input tokens is a smell.
 // Attempt 3 (4d1294bb) hit 2M while debugging e2e at 0.03 USD spent: the token
 // guardrail, not spend, stops runs. A guardrail hit is now an owner question in
-// the cockpit; the cost cap is the hard limit.
+// the cockpit. Dev-stage decision (14 Sep): cost is not a constraint, so the
+// limits below are generous safety nets against runaway loops, not budgets.
 export const factoryModelLimits = {
-  maxInputTokensPerSession: 2_000_000,
-  maxOutputTokensPerSession: 200_000,
-  maxTokenCostUsdPerSession: 25,
+  maxInputTokensPerSession: 50_000_000,
+  maxOutputTokensPerSession: 5_000_000,
+  maxTokenCostUsdPerSession: 500,
 } as const;
 export const migratorModelLimits = {
-  maxInputTokensPerSession: 6_000_000,
-  maxOutputTokensPerSession: 400_000,
-  maxTokenCostUsdPerSession: 25,
+  maxInputTokensPerSession: 100_000_000,
+  maxOutputTokensPerSession: 10_000_000,
+  maxTokenCostUsdPerSession: 500,
 } as const;
 
 // The migrated Nuxt application lives here; every draft PR targets this repository.

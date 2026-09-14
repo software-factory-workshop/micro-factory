@@ -18,9 +18,9 @@ const task = deliveryRequest.parse({
 
 test("injected fixture describes a client-only save that cannot survive reload", () => {
   assert.match(fixtureTitle, /^# \[injected\]/m);
-  assert.match(candidatePatch, /const current = issues\.value\.find/);
+  assert.match(candidatePatch, /const todo = items\.value\.find/);
   assert.doesNotMatch(candidatePatch, /^\+.*method: "PATCH"/m);
-  assert.match(candidatePatch, /-      if \(selectedKey\.value === key\) await loadDetail\(key\);/);
+  assert.match(candidatePatch, /^-\s+await \$fetch\(`\/api\/todos\/\$\{id\}`, \{ method: "PATCH" \}\);/m);
 });
 
 test("lazy approval of the injected fixture stays human_review and manual", () => {

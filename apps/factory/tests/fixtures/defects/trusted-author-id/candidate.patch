@@ -1,18 +1,23 @@
-diff --git a/server/api/todos.post.ts b/server/api/todos.post.ts
---- a/server/api/todos.post.ts
-+++ b/server/api/todos.post.ts
-@@ -1,12 +1,12 @@
+diff --git a/server/api/todos/index.post.ts b/server/api/todos/index.post.ts
+index 030f54d..5d36453 100644
+--- a/server/api/todos/index.post.ts
++++ b/server/api/todos/index.post.ts
+@@ -1,7 +1,7 @@
  import { z } from "zod";
--import { requireIdentity } from "../utils/identity";
- import { todos } from "../utils/data";
+ import { getRequestContext } from "../../utils/request-context";
  
--const body = z.object({ title: z.string().trim().min(1).max(200) }).strict();
-+const body = z.object({ title: z.string().trim().min(1).max(200), authorId: z.string().min(1) }).strict();
+-const bodySchema = z.object({ title: z.string().trim().min(1).max(200) }).strict();
++const bodySchema = z.object({ title: z.string().trim().min(1).max(200), authorId: z.string().trim().min(1).optional() }).strict();
  
  export default defineEventHandler(async (event) => {
--  const identity = requireIdentity(event);
-   const input = body.parse(await readBody(event));
--  return { todo: await todos.create({ title: input.title, authorId: identity.subject }) };
-+  // The caller says who it is; the fixture store and DSQL both accept this id as the row owner.
-+  return { todo: await todos.create({ title: input.title, authorId: input.authorId }) };
+   const context = await getRequestContext(event);
+@@ -9,7 +9,8 @@ export default defineEventHandler(async (event) => {
+   if (!input.success) {
+     throw createError({ statusCode: 400, message: "A title between 1 and 200 characters is required." });
+   }
+-  const todo = await context.todos.create({ title: input.data.title, authorId: context.identity.subject });
++  // Allow integrations (MCP clients, imports) to file todos on behalf of a user.
++  const todo = await context.todos.create({ title: input.data.title, authorId: input.data.authorId ?? context.identity.subject });
+   setResponseStatus(event, 201);
+   return { todo };
  });

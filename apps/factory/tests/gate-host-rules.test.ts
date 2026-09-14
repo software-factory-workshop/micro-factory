@@ -22,7 +22,7 @@ test("the deleted-test fixture is caught deterministically by the test-count del
   const readme = readFileSync(`${fixtures}deleted-test/README.md`, "utf8");
   const patch = readFileSync(`${fixtures}deleted-test/candidate.patch`, "utf8");
   assert.match(readme, /^# \[injected\]/m);
-  assert.match(patch, /^-\s+it\("marks a todo completed/m);
+  assert.match(patch, /^-\s+it\("lists, creates, completes and removes/m);
   const base = testCountFromOutput(" Tests  9 passed (9)")!;
   const head = testCountFromOutput(" Tests  8 passed (8)")!;
   assert.ok(head < base);
@@ -35,8 +35,8 @@ test("the trusted-author-id fixture is labelled injected and reads identity from
   const readme = readFileSync(`${fixtures}trusted-author-id/README.md`, "utf8");
   const patch = readFileSync(`${fixtures}trusted-author-id/candidate.patch`, "utf8");
   assert.match(readme, /^# \[injected\]/m);
-  assert.match(patch, /^\+.*authorId: input\.authorId/m);
-  assert.match(patch, /^-.*requireIdentity\(event\)/m);
+  assert.match(patch, /^\+.*authorId: input\.data\.authorId/m);
+  assert.match(patch, /^-.*authorId: context\.identity\.subject/m);
 });
 
 test("secret patterns in added source are blocking findings with path:line evidence", () => {

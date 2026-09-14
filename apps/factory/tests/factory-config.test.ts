@@ -7,7 +7,7 @@ test("factory configuration keeps host bindings in one plain module", () => {
   assert.match(factoryRepository, /^software-factory-workshop\//);
   assert.match(prototypeRepository, /^software-factory-workshop\//);
   assert.notEqual(factoryRepository, prototypeRepository);
-  assert.ok(factoryModelLimits.maxTokenCostUsdPerSession <= 25);
+  assert.ok(Number.isFinite(factoryModelLimits.maxTokenCostUsdPerSession) && factoryModelLimits.maxTokenCostUsdPerSession > 0);
   assert.equal(migratorModelLimits.maxTokenCostUsdPerSession, factoryModelLimits.maxTokenCostUsdPerSession);
   assert.ok(migratorModelLimits.maxInputTokensPerSession > factoryModelLimits.maxInputTokensPerSession);
   assert.ok(factoryModelLimits.maxInputTokensPerSession >= 2_000_000);
