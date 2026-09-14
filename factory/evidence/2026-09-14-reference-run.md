@@ -51,6 +51,17 @@ Started 16:17 CEST from cockpit deployment `adeo-micro-factory-52f25wa96` (facto
 
 Factory changes from this attempt: `3eee09e` (strip ANSI from test totals, run checks with `CI=1 NO_COLOR=1 FORCE_COLOR=0`) and the cursor fix (`resetObservation` on station change plus self-heal of a foreign cursor). Friction entries: `20260914174152-vitest-colours-its`, plus the two earlier ones.
 
+## Attempt 3 · delivery `4d1294bb5a6fc1158252cc27cca55e3e1d2c2571040e126fed94ea857ccc86d1`
+
+Started 17:47 CEST from cockpit deployment `adeo-micro-factory-7ggdb6al5` (factory SHA `3681b12`, cursor fix and NO_COLOR checks in place). Migrator session `wrun_41M2G9MP8M0GKPZW7PB9STZJZB`.
+
+| Time | Observation |
+| --- | --- |
+| 17:48–18:05 | Wrote `shared/types.ts`, identity, Jira and DSQL/fixture modules, six routes, the page, four test files and the e2e specs; found that Nuxt auto-imports are absent in plain Vitest and fixed it inside the allowlist (explicit `h3` type imports, a config resolver); typecheck, 12 unit tests (base 2) and build passed; started proving the browser flow by hand before the e2e run. |
+| 18:06 | Eve `input.requested` kind `session-limit` at 2,011,137 of 2,000,000 input tokens. Spend so far: 0.0316 USD. The loop moved to `human_review` ("stopped without a trusted result"). No PR published. |
+
+Factory change from this attempt: a session-limit pause is now an owner question in the cockpit (`Waiting → Approve a fresh token budget / Stop here`), answered through Eve's input response on the same session so the station continues in `working`, `revising` or `reviewing`; guardrails raised to 6M input tokens for the migrator and 2M for the gates under the unchanged 25 USD cap. The cost cap is the hard limit; the token guardrail is an interruption a person decides on.
+
 ## Command sheet to finish the reference run
 
 ```sh
