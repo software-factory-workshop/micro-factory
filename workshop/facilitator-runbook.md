@@ -67,7 +67,7 @@ Expected: `changes_requested` each time; #4 blocked by the host test-count delta
 
 ## Known wobbles and what to say
 
-- `prepare_review` can fail with `fetch failed` (GitHub or Connect hiccup). The gate records `incomplete`, never a verdict. Rerun the eval; it passed on the second attempt the night before. This is the "infrastructure, not candidate" attribution in action.
+- `prepare_review` can fail on a GitHub hiccup (`fetch failed`, or `HTTP 403` seen once on the night). The gate records no verdict. In the cockpit loop the gate is restarted automatically, up to twice ("Restarting quality-gate (retry 1 of 2)" in the timeline); in a standalone eval, rerun it. This is the "infrastructure, not candidate" attribution in action.
 - Vercel closes idle function streams after about 20 seconds; the eval proxy reconnects with `startIndex`. If an eval says `terminated`, the proxy died: restart it.
 - The Vercel toolbar on the Connect demo intercepts clicks during automation; humans are unaffected.
 - The deleted or unknown issue key on the Connect demo shows as 502, not 404. Cosmetic.
