@@ -20,7 +20,7 @@ Everything a facilitator needs on the day, in the order it is needed. Dates and 
 | --- | --- |
 | micro-factory migrator, quality gate | `openai/gpt-5.6-sol-fast` |
 | micro-factory security gate | `zai/glm-5.3-flash` (different vendor on purpose) |
-| Jira factory task miner / worker / reviewer | `openai/gpt-5.6-luna-fast` / `openai/gpt-5.6-sol-fast` / `zai/glm-5.3-flash` |
+| Jira factory task miner / worker / reviewer | `openai/gpt-5.6-sol-fast` / `openai/gpt-5.6-sol-fast` / `zai/glm-5.3-flash` (Luna Fast skipped tool arguments in the mining evals) |
 
 Measured the night before: full M0 migration about 5 minutes (was 32 with Muse); each gate 2 to 3 minutes. Opus 5 is not enabled on this team's gateway; do not switch to it live.
 
