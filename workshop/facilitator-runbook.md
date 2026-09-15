@@ -69,7 +69,7 @@ What is live in the preview and what is not:
 
 ## M0 in the room
 
-Cockpit → Projects → the kanban prototype URL is prefilled, the brief follows → Admit as work order → Start migration. The start takes a few seconds longer than before (bootstrap of the target) the first time a prototype is used. About 5 minutes to the `dev` PR, then 2 to 3 minutes per gate, then **Open preview** and **Approve and merge**. Kanban reference: delivery `b025f612…` in Recent work (started 08:07 the morning of the workshop, see evidence). The reference artefacts if a run misbehaves: PR #11 (full cockpit loop on the workshop models, both gates approve, delivery `284abcac…` in the cockpit's Recent list), plus PR #6 and #8 from the eval-only runs; all drafts on `main`.
+Cockpit → Projects → the kanban prototype URL is prefilled, the brief follows → Admit as work order → Start migration. The start takes a few seconds longer than before (bootstrap of the target) the first time a prototype is used. About 5 minutes to the `dev` PR, then 2 to 3 minutes per gate, then **Open preview** and **Approve and merge**. Kanban reference: delivery `ad682574…` in Recent work (started 13:54, merged 14:59 the day of the workshop; PR #3 on `adeo-kanban-nuxt`, production is the merged app). Expect the security gate to request changes on the Passport header trust: that is the human decision point, use **Approve and merge anyway** with a reason. The reference artefacts if a run misbehaves: PR #11 (full cockpit loop on the workshop models, both gates approve, delivery `284abcac…` in the cockpit's Recent list), plus PR #6 and #8 from the eval-only runs; all drafts on `main`.
 
 Run the eval version in a terminal while people watch:
 
