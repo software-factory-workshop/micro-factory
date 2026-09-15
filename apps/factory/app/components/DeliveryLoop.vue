@@ -628,6 +628,7 @@ onBeforeUnmount(() => {
 .activity-grid dd { margin: 0; overflow-wrap: anywhere; }
 .activity-error dd { color: #a33d37; }
 .agent-words { margin: 12px 0 0; padding: 10px 14px; border-left: 3px solid var(--ui-border); }
+.station-activity a { color: var(--ui-primary); text-decoration: underline; }
 .agent-words p { margin: 0; white-space: pre-wrap; font-size: 12px; line-height: 1.6; }
 .agent-words p + p { margin-top: 6px; }
 .delivery-usage { margin: 8px 0 0; color: var(--ui-text-muted); font-size: 12px; }
