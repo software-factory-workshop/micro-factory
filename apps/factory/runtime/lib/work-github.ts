@@ -107,6 +107,24 @@ export async function loadWorkSnapshot(token: string, revision: string = "main",
   return { revision: source.revision, treeSha: source.treeSha, entries, excludedPaths: source.tree.filter(item => item.type !== "tree" && !selected.includes(item)).map(item => item.path) };
 }
 const pullSchema = z.object({ number: z.number().int().positive(), html_url: z.string().url(), title: z.string(), body: z.string().nullable(), state: z.string(), merged: z.boolean().optional(), merge_commit_sha: sha.nullable().optional(), draft: z.boolean().optional(), head: z.object({ sha, ref: z.string(), repo: z.object({ full_name: z.literal(repository) }) }), base: z.object({ sha, ref: z.string(), repo: z.object({ full_name: z.literal(repository) }) }) });
+/**
+ * The target project's Vercel preview for a commit, read from the GitHub Deployments Vercel
+ * creates for every pushed branch (environment_url), so the factory needs no Vercel token.
+ * Undefined until Vercel has posted a deployment status for that exact head.
+ */
+export async function readPreviewDeployment(token: string, headSha: string, signal?: AbortSignal): Promise<{ url: string; state: string; environment: string; checkedAt: string } | undefined> {
+  sha.parse(headSha);
+  const deployments = z.array(z.object({ id: z.number(), environment: z.string(), sha: z.string() })).parse((await request(token, `deployments?sha=${headSha}&per_page=5`, signal)).data);
+  for (const deployment of deployments) {
+    if (deployment.sha !== headSha) continue;
+    const statuses = z.array(z.object({ state: z.string(), environment_url: z.string().nullable().optional(), target_url: z.string().nullable().optional() })).parse((await request(token, `deployments/${deployment.id}/statuses?per_page=5`, signal)).data);
+    const latest = statuses[0];
+    const url = latest?.environment_url || undefined;
+    if (latest && url && /^https:\/\//.test(url)) return { url, state: latest.state, environment: deployment.environment, checkedAt: new Date().toISOString() };
+    if (latest) return { url: url ?? "", state: latest.state, environment: deployment.environment, checkedAt: new Date().toISOString() };
+  }
+  return undefined;
+}
 export async function readPull(token: string, number: number, signal?: AbortSignal) {
   z.number().int().positive().parse(number);
   const pr = pullSchema.parse((await request(token, `pulls/${number}`, signal)).data);

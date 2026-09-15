@@ -29,7 +29,7 @@ interface Delivery {
   reviewerSessionId?: string;
   failure?: { kind: string; retryable: boolean };
   failedPhase?: string;
-  publication?: { number: number; url: string; branch?: string; targetBranch?: string; headSha?: string; targetHeadSha?: string; ownerSessionId?: string; parentPrNumber?: number };
+  publication?: { number: number; url: string; branch?: string; targetBranch?: string; headSha?: string; targetHeadSha?: string; ownerSessionId?: string; parentPrNumber?: number; preview?: { url: string; state: string; environment: string; checkedAt: string } };
   gate?: string;
   reviews?: Partial<Record<string, Review>>;
   review?: Review;
@@ -463,6 +463,8 @@ onBeforeUnmount(() => {
       <UButton v-if="attention === 'waiting'" icon="i-lucide-message-circle-reply" @click="ownerAnswerFocus = true">Answer</UButton>
       <UButton v-if="attention === 'ready' && run?.publication" :to="run.publication.url" target="_blank" rel="noopener noreferrer" icon="i-lucide-git-pull-request">Open PR #{{ run.publication.number }}</UButton>
       <UButton v-else-if="run?.publication" :to="run.publication.url" target="_blank" rel="noopener noreferrer" variant="outline" icon="i-lucide-git-pull-request">PR #{{ run.publication.number }}</UButton>
+      <UButton v-if="run?.publication?.preview?.url && run.publication.preview.state === 'success'" :to="run.publication.preview.url" target="_blank" rel="noopener noreferrer" variant="outline" icon="i-lucide-globe">Open preview</UButton>
+      <span v-else-if="run?.publication?.preview" class="small muted">Preview {{ run.publication.preview.state }}</span>
       <UButton v-if="run?.publication && reconcilable.has(run.phase)" variant="outline" :loading="reconciling" :disabled="working || reconciling" icon="i-lucide-shield-check" @click="reconcile">Check manual merge</UButton>
       <UButton v-if="run && attention !== 'blocked'" variant="outline" :loading="working" icon="i-lucide-refresh-cw" @click="refresh">Refresh</UButton>
       <UButton v-if="run && !stopped.has(run.phase)" variant="outline" color="error" :loading="stopping" :disabled="working || stopping" @click="requestCancel">Stop</UButton>

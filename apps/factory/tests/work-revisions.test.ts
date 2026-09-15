@@ -102,3 +102,16 @@ test("review invalidates a retarget even when both branch tips have the same SHA
  await assert.rejects(verifyPullRequestHead("test",4,h,undefined,a,"old-target"),/changed/);
  await verifyPullRequestHead("test",4,h,undefined,a,"new-target");
 });
+
+test("preview deployment is read from GitHub deployment statuses for the exact head", async t => {
+ const {readPreviewDeployment}=await import("../runtime/lib/work-github.ts");
+ t.mock.method(globalThis,"fetch",async(url)=>{
+  const p=String(url).split(`/repos/${factoryRepository}/`)[1]!;
+  if(p.startsWith("deployments?"))return Response.json([{id:1,environment:"Preview",sha:h}]);
+  if(p.startsWith("deployments/1/statuses"))return Response.json([{state:"success",environment_url:"https://adeo-todo-nuxt-abc-team.vercel.app",target_url:"https://adeo-todo-nuxt-abc-team.vercel.app"}]);
+  throw Error(`Unexpected ${p}`);
+ });
+ const preview=await readPreviewDeployment("test",h);
+ assert.equal(preview?.url,"https://adeo-todo-nuxt-abc-team.vercel.app");assert.equal(preview?.state,"success");assert.equal(preview?.environment,"Preview");
+ assert.equal(await readPreviewDeployment("test",a),undefined);
+});

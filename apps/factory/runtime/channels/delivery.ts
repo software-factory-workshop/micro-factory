@@ -12,7 +12,7 @@ import { stationOperation } from './stations';
 import { answerOwnerQuestion, retryGate, deliveryRequest,newDelivery,operationFor,transition,terminal,applyReview,referenceState,claimAdvance,commitAdvance,requestResume,beginRevision,admissionRecoveryAction,recordAdmissionFailure,retryAdmission,resetObservation,askBudgetApproval,BUDGET_APPROVE,type Delivery } from '../lib/delivery-state';
 import { listDeliveryReceipts,readDelivery,updateDelivery } from '../lib/delivery-store';
 import { classifyDeliveryError,snapshotEvents,childIn,hostResult,stoppedWithoutResult,eventsForDelivery,modelUsageFromEvents,accumulateModelUsage,pendingSessionLimit,resumeMessage,resumeReceipt,type ClassifiedDeliveryError, type EventSnapshot } from '../lib/delivery-events';
-import { readPull,readBranch,WorkError,workBranch } from '../lib/work-github';
+import { readPull,readBranch,readPreviewDeployment,WorkError,workBranch } from '../lib/work-github';
 import { repository } from '../lib/github.mjs';
 import { githubConnectorName } from '../lib/factory-config.ts';
 import { reconcileManuallyMergedDelivery } from '../lib/delivery-reconcile';
@@ -21,7 +21,7 @@ import { mergeEligibility } from '../lib/merge-policy';
 import { runFactoryOperation } from '../lib/cedar/operation-runner';
 import { factoryWorkflowPrincipal } from '../lib/cedar/guard';
 import { repositoryResource } from '../lib/cedar/model';
-const publication=z.object({number:z.number().int().positive(),url:z.string().url(),headSha:z.string().regex(/^[a-f0-9]{40}$/),targetHeadSha:z.string().regex(/^[a-f0-9]{40}$/),targetBranch:z.string(),ownerSessionId:z.string(),branch:z.string()});
+const publication=z.object({preview:z.object({url:z.string(),state:z.string(),environment:z.string(),checkedAt:z.string()}).optional(),number:z.number().int().positive(),url:z.string().url(),headSha:z.string().regex(/^[a-f0-9]{40}$/),targetHeadSha:z.string().regex(/^[a-f0-9]{40}$/),targetBranch:z.string(),ownerSessionId:z.string(),branch:z.string()});
 const review=z.object({verdict:z.enum(['approve','changes_requested','incomplete']),summary:z.string(),headSha:z.string(),baseSha:z.string(),targetBranch:z.string(),findings:z.array(z.object({severity:z.string(),path:z.string(),line:z.number().int().positive().optional(),message:z.string(),evidence:z.string()})),limitations:z.array(z.string()),gate:z.enum(gateStations as unknown as [string,...string[]]).optional(),line:z.number().int().positive().optional(),verification:z.object({prepared:z.boolean(),repositoryChecksPassed:z.boolean(),candidateUnchanged:z.boolean()}).optional()});
 function admissionFailureResponse(state: Delivery){return Response.json({deliveryId:state.id,phase:state.phase,state:state.state,error:state.error||'Outer workflow admission failed.',recovery:admissionRecoveryAction(state.id,state.request)},{status:503});}
 async function existing(id:string){const saved=await readDelivery(id);if(!saved)throw new Error('Delivery not found');return saved.state;}
@@ -34,6 +34,13 @@ function rememberObservation(state: Delivery, snapshot: EventSnapshot) {
  state.observation={lastEventIndex:snapshot.observation.lastEventIndex,lastEventAt:snapshot.observation.lastEventAt||state.observation.lastEventAt||new Date().toISOString()};
 }
 function protectedRoute(fn:(request:Request,args:RouteHandlerArgs)=>Promise<Response>){return async(request:Request,args:RouteHandlerArgs)=>{const auth=await routeAuth(request,factoryAuth);if(auth instanceof Response)return auth;try{return await fn(request,args);}catch(error){return classifiedResponse(classifyDeliveryError(error));}};}
+// Vercel deploys every pushed factory branch; record that preview on the publication so the
+// cockpit can open the running candidate. Read from GitHub deployment statuses (no Vercel token).
+async function refreshPreview(state:Delivery){
+ const p=state.publication;if(!p||p.preview?.state==='success')return;
+ try{const token=await getToken(githubConnectorName,{subject:{type:'app'}});const preview=await readPreviewDeployment(token,p.headSha);if(preview)state.publication={...p,preview};}
+ catch{/* preview is informative; never blocks the loop */}
+}
 async function checkCurrent(p:NonNullable<Delivery['publication']>){
  const token=await getToken(githubConnectorName,{subject:{type:'app'}});const pr=await readPull(token,p.number);const targetHeadSha=await readBranch(token,pr.base.ref);
  const status=referenceState(p,{state:pr.state,headSha:pr.head.sha,targetBranch:pr.base.ref,targetHeadSha});
@@ -67,6 +74,7 @@ async function advance(request:Request,ctx:RouteHandlerArgs){
    if(state.resumeAttemptedAt){
     const snapshot=await snapshotEvents((await factorySession(state.childSessionId,ctx.attachSession)),{startIndex:0});
     rememberObservation(state,snapshot);
+   await refreshPreview(state);
     deliveryId=resumeReceipt(snapshot,state.resumeOperationId,state.resumeMessage);
     // Send intent is recorded before the queued message. If the receipt is lost we
     // look for the exact message in the owner's durable stream; we never resend,

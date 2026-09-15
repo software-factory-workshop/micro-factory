@@ -208,6 +208,8 @@ export interface Delivery {
     targetBranch: string;
     ownerSessionId: string;
     branch: string;
+    /** Vercel preview of this exact head, read from GitHub deployment statuses. */
+    preview?: { url: string; state: string; environment: string; checkedAt: string };
   };
   // Which gate runs next. Reviews accumulate per gate; `review` is the last one.
   gate?: GateStation;
