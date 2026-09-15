@@ -68,13 +68,13 @@ export const FACTORY_ACTIONS = {
     resourceType: "Change",
   },
   publish_change: {
-    description: "Open or update one draft change from a verified factory workspace.",
+    description: "Open or update one change (the dev pull request) from a verified factory workspace.",
     inputSchema: z
       .object({
         branch: z.string().min(1).max(200),
         candidateSha: shaSchema,
         baseSha: shaSchema,
-        draft: z.literal(true),
+        draft: z.boolean(),
       })
       .strict(),
     mutating: true,

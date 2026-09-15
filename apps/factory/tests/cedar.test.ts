@@ -70,6 +70,18 @@ test("canonical Cedar files are generated, strictly validated, and revisioned", 
   assert.ok(manifest.actions.every((action) => "inputSchema" in action));
 });
 
+test("worker publication on the dev branch is allowed without the draft flag (15 Sep pipeline)", () => {
+  const result = evaluateFactory({
+    principal: worker,
+    action: "publish_change",
+    input: { branch: "dev", candidateSha, baseSha, draft: false },
+    resource: change({ branch: "dev" }),
+    context: context({ branch: "dev" }),
+  });
+  assert.equal(result.valid, true, result.errors.join("\n"));
+  assert.equal(result.decision, "ALLOW", result.determiningPolicies.join(","));
+});
+
 test("worker publication is allowed only for its verified candidate and factory branch", () => {
   const result = evaluateFactory({
     principal: worker,

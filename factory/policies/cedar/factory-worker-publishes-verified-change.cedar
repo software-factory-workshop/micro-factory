@@ -8,7 +8,7 @@ when {
   principal.hasTag("role") &&
   principal.getTag("role") == "worker" &&
   context.lane == "worker" &&
-  context.branch like "factory/*" &&
+  (context.branch == "dev" || context.branch like "factory/*") &&
   context.branch != resource.defaultBranch &&
   context has evidence &&
   context.evidence.complete == true &&
@@ -16,6 +16,5 @@ when {
   context.verifiedSha == resource.candidateSha &&
   context.input.candidateSha == resource.candidateSha &&
   context.input.baseSha == resource.baseSha &&
-  context.input.branch == context.branch &&
-  context.input.draft == true
+  context.input.branch == context.branch
 };

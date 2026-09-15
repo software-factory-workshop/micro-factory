@@ -28,7 +28,7 @@ export default defineTool({description:"Publish verified source changes as one p
    operationId:`${state.operationId}:publish`,
    principal,
    action:"publish_change",
-   input:{branch,candidateSha:candidateDigest,baseSha:state.revision,draft:true},
+   input:{branch,candidateSha:candidateDigest,baseSha:state.revision,draft:false},
    resource:changeResource({id:state.operationId,taskId:state.operationId,candidateSha:candidateDigest,baseSha:state.revision,branch,expectedRevision:state.revision}),
    context:{expectedRevision:state.revision,candidateSha:candidateDigest,baseSha:state.revision,verifiedSha:candidateDigest,branch,lane:"worker",budget:0,riskClass:"low",evidence:{id:evidenceId,source:"factory.verify_work",complete:true,candidateSha:candidateDigest}},
    execute:async()=>{
