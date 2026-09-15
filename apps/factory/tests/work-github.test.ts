@@ -6,7 +6,7 @@ import { factoryRepository } from "../runtime/lib/factory-config.ts";
 const base="a".repeat(40),baseTree="b".repeat(40),newTree="c".repeat(40),head="d".repeat(40);
 const repo=factoryRepository;
 const input={sessionId:"wrun_test",baseSha:base,title:"Make a useful change",body:"Evidence and acceptance",changes:[{path:"app/app.vue",content:"new code"}]};
-function mockGitHub(t: {mock:{method:Function}},options:{mode?:string;main?:string;existingDifferent?:boolean}={}){
+function mockGitHub(t: {mock:{method:Function}},options:{mode?:string;main?:string;existingDifferent?:boolean;closedPrevious?:boolean}={}){
  const writes:Array<{path:string;body:any}>=[];
  let ref:string|undefined=options.existingDifferent?head:undefined;
  let commitMessage="";
@@ -28,7 +28,7 @@ function mockGitHub(t: {mock:{method:Function}},options:{mode?:string;main?:stri
   if(path==="git/ref/heads/main")return Response.json({object:{sha:options.main||base}});
   if(path===`git/ref/heads/${workBranch(input.sessionId)}`)return ref?Response.json({object:{sha:ref}}):new Response("missing",{status:404});
   if(path===`git/commits/${head}`)return Response.json({tree:{sha:options.existingDifferent?baseTree:newTree},parents:[{sha:base}],message:commitMessage});
-  if(path==="pulls")return Response.json(pr?[pr]:[]);
+  if(path==="pulls"){const closed=options.closedPrevious?[{...pull(),number:7,state:"closed",head:{...pull().head,sha:"9".repeat(40)}}]:[];return Response.json([...closed,...(pr?[pr]:[])]);}
   if(path==="pulls/1")return Response.json(pr);
   throw Error(`Unexpected request ${init.method} ${path}`);
  });
@@ -46,6 +46,11 @@ test("publication creates only one immutable dev branch and PR across retries",a
  const body=writes.find(x=>x.path==="pulls")!.body;assert.equal(body.draft,false);assert.equal(body.base,"main");assert.equal(body.head,workBranch(input.sessionId));
  assert.ok(body.body.startsWith(input.body+"\n\n<!-- Factory-Owner: "+input.sessionId));
  assert.ok(body.body.endsWith(`Factory-Session: ${createHash("sha256").update(input.sessionId).digest("hex")}\nFactory-Base: ${base} -->`));
+});
+test("a closed PR from an earlier delivery on the same dev branch does not block publication",async t=>{
+ const writes=mockGitHub(t,{closedPrevious:true});
+ const result=await publishWork("test-token",input);
+ assert.equal(result.number,1);assert.equal(writes.filter(x=>x.path==="pulls").length,1);
 });
 test("publication preserves existing executable mode but refuses symlinks",async t=>{
  const writes=mockGitHub(t,{mode:"100755"});await publishWork("test-token",input);assert.equal(writes.find(x=>x.path==="git/trees")!.body.tree[0].mode,"100755");

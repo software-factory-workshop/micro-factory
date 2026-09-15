@@ -303,7 +303,9 @@ export async function publishWork(token: string, input: PublishWorkInput, signal
   let pr: z.infer<typeof pullSchema>|undefined;
   for(let attempt=1;;attempt+=1){
    const response=await request(token,`pulls?${query}`,signal,undefined,undefined,repo);if(response.next)throw new Error("Unexpected paginated owner PRs.");
-   const candidates=z.array(pullSchema).parse(response.data);if(candidates.length>1)throw new Error("Ambiguous owner PRs.");
+   // The branch name is fixed (`dev`), so closed PRs from earlier deliveries share it. Only an open PR,
+   // or a closed one that already carries this exact head (a replay after a manual close), counts.
+   const candidates=z.array(pullSchema).parse(response.data).filter(candidate=>candidate.state==="open"||candidate.head.sha===headSha);if(candidates.length>1)throw new Error("Ambiguous owner PRs.");
    pr=candidates[0];
    const lagging=pr&&pr.state==="open"&&pr.head.sha!==headSha&&input.previous&&pr.number===input.previous.number&&pr.head.sha===input.previous.headSha;
    if(!lagging||attempt>=6)break;
