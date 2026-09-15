@@ -12,8 +12,10 @@ Everything a facilitator needs on the day, in the order it is needed. Dates and 
 | Jira MCP gateway (public sidecar) | https://jira-clone-mcp-gateway.vercel.app/mcp | OAuth bearer from the clone |
 | Connect + MCP CRUD demo | https://jira-connect-demo.vercel.app | Vercel Passport |
 | Pocket ID (identity provider) | https://pocket-id-software-factory.vercel.app | passkey; instructor console at `/workshop` |
-| Target repo | https://github.com/software-factory-workshop/adeo-todo-nuxt | GitHub |
-| Target app (Vercel project `adeo-todo-nuxt`) | production = bare shell on `main`; every factory PR branch gets a preview deployment (open it from the PR's Vercel check) | Vercel Passport |
+| Input for the room: v0 kanban prototype | https://github.com/software-factory-workshop/adeo-kanban-proto | GitHub |
+| Shell template (targets are generated from it) | https://github.com/software-factory-workshop/adeo-nuxt-shell | GitHub |
+| Generated target for the kanban | https://github.com/software-factory-workshop/adeo-kanban-nuxt · production https://adeo-kanban-nuxt.vercel.app | GitHub / Vercel Passport |
+| Reference target (14 Sep runs, PR #11 etc.) | https://github.com/software-factory-workshop/adeo-todo-nuxt · https://adeo-todo-nuxt.vercel.app | GitHub / Vercel Passport |
 
 ## Models (AI Gateway ids, chosen 15 Sep for speed)
 
@@ -46,9 +48,18 @@ curl -s -X POST -H "X-API-KEY: $POCKET_ID_KEY" -H 'content-type: application/jso
 
 Codes minted with `expiresAt` are 6 characters and cannot be typed on the code page; always use `ttl`. User ids: `GET /api/users?search=persona`.
 
+## What the factory does now (changed the morning of 15 Sep)
+
+1. **Input**: a v0 project's GitHub URL, pasted on the cockpit's Projects page (default: the kanban prototype). The cockpit derives the target name: `adeo-kanban-proto` → `adeo-kanban-nuxt`.
+2. **Bootstrap** (host, before any station): generates the target repository from the `adeo-nuxt-shell` template if it does not exist, creates the git-linked Vercel project behind the same Passport connector as the cockpit, and pushes an empty commit so `main` (the bare shell) is deployed to production. Idempotent: reruns reuse everything. An open `dev` PR on the target blocks a second delivery for the same prototype (merge or close it first).
+3. **One PR on `dev` → `main`**, not a draft. Its Vercel preview is the review surface; the cockpit shows **Open preview** once Vercel reports it. Gates review the exact head; blocking findings go back to the same owner on the same branch.
+4. **Approve and merge**: when both gates approve, the cockpit shows **Approve and merge** (a reason is required, recorded on the receipt). The host squash-merges into `main` under Cedar `merge_change` and Vercel deploys production. Nothing merges without a person.
+
+Bootstrap credentials (`GITHUB_BOOTSTRAP_TOKEN`, `VERCEL_TOKEN`) live only on the cockpit project; stations never see them. They are Rémi's personal tokens for now: rotate after the workshop.
+
 ## The migrated app is DEPLOYED
 
-The target project `adeo-todo-nuxt` is on Vercel, git-linked: `main` (the bare shell) is production and every factory branch gets a preview deployment behind Passport. The loop records that preview on the publication (read from the GitHub deployment status Vercel posts for the exact head) and the cockpit shows **Open preview** next to **Open PR** once it is live. Open it in the room: the todo page renders with the visitor's verified Passport identity.
+Every generated target is a git-linked Vercel project: `main` is production (the shell until the merge), the `dev` PR gets a preview deployment behind Passport, and after **Approve and merge** production is the migrated app. The loop records the preview on the publication (read from the GitHub deployment status Vercel posts for the exact head) and the cockpit shows **Open preview** next to **Open PR** once it is live. For the reference target `adeo-todo-nuxt` the same holds for the 14 Sep PRs.
 
 What is live in the preview and what is not:
 
@@ -58,7 +69,7 @@ What is live in the preview and what is not:
 
 ## M0 in the room
 
-Cockpit → Projects → the prefilled brief → Admit as work order → Start migration. About 5 minutes to a draft PR, then 2 to 3 minutes per gate. The reference artefacts if a run misbehaves: PR #11 (full cockpit loop on the workshop models, both gates approve, delivery `284abcac…` in the cockpit's Recent list), plus PR #6 and #8 from the eval-only runs; all drafts on `main`.
+Cockpit → Projects → the kanban prototype URL is prefilled, the brief follows → Admit as work order → Start migration. The start takes a few seconds longer than before (bootstrap of the target) the first time a prototype is used. About 5 minutes to the `dev` PR, then 2 to 3 minutes per gate, then **Open preview** and **Approve and merge**. Kanban reference: delivery `b025f612…` in Recent work (started 08:07 the morning of the workshop, see evidence). The reference artefacts if a run misbehaves: PR #11 (full cockpit loop on the workshop models, both gates approve, delivery `284abcac…` in the cockpit's Recent list), plus PR #6 and #8 from the eval-only runs; all drafts on `main`.
 
 Run the eval version in a terminal while people watch:
 
