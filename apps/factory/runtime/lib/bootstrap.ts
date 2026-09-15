@@ -134,15 +134,36 @@ export async function bootstrapTarget(input: BootstrapInput, signal?: AbortSigna
   const attached = await vercel(vc, `/v1/connect/connectors/${passportConnectorId}/projects/${projectId}`, { signal, body: { environments: ["production", "preview", "development"] } });
   if (!attached.ok) warnings.push(`The Passport connector could not be attached to ${projectName}: ${attached.message || `HTTP ${attached.status}`}.`);
 
-  // 5. Production is the shell on main until a person merges the factory's pull request.
+  // 5. Production is the shell on main until a person merges the factory's pull request. A
+  // deployment created through the API for a repository linked seconds earlier stays BLOCKED
+  // (observed 15 Sep, twice, no error code), so production is started the way Vercel expects:
+  // a push. An empty commit on main (same tree) is enough; the git integration builds it.
   let deploymentId: string | undefined;
-  const existing = await vercel(vc, `/v6/deployments?projectId=${projectId}&target=production&limit=1`, { signal });
+  const existing = await vercel(vc, `/v6/deployments?projectId=${projectId}&target=production&limit=5`, { signal });
   const deployments = z.array(z.object({ uid: z.string(), state: z.string().optional() })).parse((existing.data?.deployments as unknown[]) ?? []);
-  if (!deployments.length || created.repository) {
-    const deployed = await vercel(vc, "/v13/deployments?forceNew=1", { signal, body: { name: projectName, project: projectId, target: "production", gitSource: { type: "github", repoId, ref: "main" } } });
-    if (deployed.ok) { deploymentId = z.string().parse(deployed.data?.id); created.deployment = true; }
-    else warnings.push(`Production deployment of main could not be started: ${deployed.message || `HTTP ${deployed.status}`}. Vercel deploys the next push to main on its own.`);
-  } else deploymentId = deployments[0]!.uid;
+  const live = deployments.find(d => ["READY", "BUILDING", "QUEUED", "INITIALIZING"].includes(d.state ?? ""));
+  if (live) deploymentId = live.uid;
+  else {
+    const head = await github(gh, `repos/${repository}/git/ref/heads/main`, { signal });
+    const headSha = sha.parse((head.data?.object as { sha?: string } | undefined)?.sha);
+    const commit = await github(gh, `repos/${repository}/git/commits/${headSha}`, { signal });
+    const tree = sha.parse((commit.data?.tree as { sha?: string } | undefined)?.sha);
+    const pushed = await github(gh, `repos/${repository}/git/commits`, { signal, body: { message: `factory: deploy the shell on main for ${input.prototype.repository}\n\nEmpty commit that starts the production deployment of the generated target.`, tree, parents: [headSha] } });
+    if (!pushed.ok) warnings.push(`Could not create the bootstrap commit on main: ${pushed.message || `HTTP ${pushed.status}`}.`);
+    else {
+      const moved = await github(gh, `repos/${repository}/git/refs/heads/main`, { signal, method: "PATCH", body: { sha: sha.parse(pushed.data?.sha), force: false } });
+      if (!moved.ok) warnings.push(`Could not move main to the bootstrap commit: ${moved.message || `HTTP ${moved.status}`}.`);
+      else {
+        created.deployment = true;
+        for (let attempt = 0; attempt < 20 && !deploymentId; attempt += 1) {
+          await sleep(3000);
+          const started = await vercel(vc, `/v6/deployments?projectId=${projectId}&target=production&limit=3`, { signal });
+          deploymentId = z.array(z.object({ uid: z.string(), meta: z.record(z.string(), z.unknown()).optional() })).parse((started.data?.deployments as unknown[]) ?? []).find(d => d.meta?.githubCommitSha === pushed.data?.sha)?.uid;
+        }
+        if (!deploymentId) warnings.push("The push landed but Vercel has not reported its production deployment yet; it appears on the project shortly.");
+      }
+    }
+  }
 
   return {
     repository, repositoryUrl,
