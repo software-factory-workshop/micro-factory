@@ -8,7 +8,7 @@ interface Sandbox {
 }
 export const snapshotExclusions=["factory/evidence/","Git history","credentials"];
 export const exclusionNote="Excluded paths exist in the repository but are withheld from this snapshot on purpose. Treat them as unavailable evidence, never as missing work to create. There is no commit history or CI log in this snapshot.";
-export async function prepareRepository(sandbox:Sandbox,_token:string,_signal?:AbortSignal, snapshot?:{revision:string;entries:Array<{file:string;content:Buffer;mode?:string}>}, _unused?:unknown, baseSnapshot?:{revision:string;entries:Array<{file:string;content:Buffer;mode?:string}>}) {
+export async function prepareRepository(sandbox:Sandbox,_token:string,_signal?:AbortSignal, snapshot?:{revision:string;entries:Array<{file:string;content:Buffer;mode?:string}>}, _unused?:unknown, baseSnapshot?:{revision:string;entries:Array<{file:string;content:Buffer;mode?:string}>}, prototypeRepo:string=prototypeRepository) {
   if(!snapshot)throw new Error("A pinned target snapshot is required.");
   const {revision,entries}=snapshot;
   const files=manifestFor(entries);
@@ -19,7 +19,7 @@ export async function prepareRepository(sandbox:Sandbox,_token:string,_signal?:A
     const permissions=await sandbox.run({command:`chmod 755 -- ${paths}`});
     if(permissions.exitCode!==0)throw new Error("Could not restore source executable modes.");
   }
-  await sandbox.writeTextFile({path:"repo/.factory-snapshot.json",content:JSON.stringify({revision,files,exclusions:snapshotExclusions,exclusionNote,prototype:{repository:prototypeRepository,workspace:"/workspace/prototype"},node:factoryNodeVersion,pnpm:factoryPnpmVersion},null,2)});
+  await sandbox.writeTextFile({path:"repo/.factory-snapshot.json",content:JSON.stringify({revision,files,exclusions:snapshotExclusions,exclusionNote,prototype:{repository:prototypeRepo,workspace:"/workspace/prototype"},node:factoryNodeVersion,pnpm:factoryPnpmVersion},null,2)});
   const setup=`set -eu; mkdir -p "$HOME/.local/bin"; npm install --prefix "$HOME/.local" --no-audit --no-fund node@${factoryNodeVersion} pnpm@${factoryPnpmVersion}; ln -sf "$HOME/.local/node_modules/node/bin/node" "$HOME/.local/bin/node"; ln -sf "$HOME/.local/node_modules/pnpm/bin/pnpm.cjs" "$HOME/.local/bin/pnpm"; export PATH="$HOME/.local/bin:$PATH"; cd /workspace/repo; node --version; pnpm --version; pnpm install --frozen-lockfile`;
   const result=await sandbox.run({command:setup});
   const commands=[commandEvidence(setup,result)];

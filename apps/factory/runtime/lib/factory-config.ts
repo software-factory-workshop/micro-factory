@@ -21,12 +21,27 @@ export const migratorModelLimits = {
   maxTokenCostUsdPerSession: 500,
 } as const;
 
-// The migrated Nuxt application lives here; every draft PR targets this repository.
-export const factoryRepository = "software-factory-workshop/adeo-todo-nuxt";
+// One target repository per v0 prototype. Every delivery names its prototype; the host
+// derives the target name (adeo-kanban-proto -> adeo-kanban-nuxt), generates that repository
+// from the shell template when it does not exist yet, creates its git-linked Vercel project and
+// deploys `main` (the bare shell) to production before the migrator starts. The values below are
+// the defaults a request without a prototype falls back to (the 14 Sep reference deliveries).
+export const githubOrganization = "software-factory-workshop";
+export const templateRepository = `${githubOrganization}/adeo-nuxt-shell`;
+export const factoryRepository = `${githubOrganization}/adeo-todo-nuxt`;
 export const factoryRepositoryUrl = `https://github.com/${factoryRepository}`;
 // The v0 prototype is read-only input. It is exported into the sandbox as a snapshot.
-export const prototypeRepository = "software-factory-workshop/adeo-todo-proto";
+export const prototypeRepository = `${githubOrganization}/adeo-todo-proto`;
 export const prototypeRepositoryUrl = `https://github.com/${prototypeRepository}`;
+export const defaultPrototypeRepository = `${githubOrganization}/adeo-kanban-proto`;
+// The migrator publishes one pull request from this branch to `main`; its preview deployment is
+// the review surface. A person approves in the cockpit and the host merges into `main`.
+export const factoryBranch = "dev";
+// Host credentials for the bootstrap step only (repository generation, Vercel project creation).
+// Stations never see them; every other GitHub call uses the Connect connector below.
+export const bootstrapEnv = { github: "GITHUB_BOOTSTRAP_TOKEN", vercel: "VERCEL_TOKEN" } as const;
+// Passport connector attached to every generated target project (same identity provider as the cockpit).
+export const passportConnectorId = "scl_LWyB1t8S7w35VwrCW8Qp5Q";
 
 export const vercelTeamName = "demo-software-factory";
 export const vercelTeamId = "team_Ljrc7ENgQWsCySwCwijvA0zy";
@@ -83,7 +98,7 @@ export const requiredCheckName = "check";
 
 // Named in the cockpit as missing on purpose. None of these exist in v1.
 export const missingCapabilities = [
-  "Auto-merge of any class: every PR is merged by a person.",
+  "Auto-merge of any class: the host merges only after a person approves in the cockpit.",
   "Scheduled runs: nothing starts without an operator request.",
   "Webhook triggers: GitHub events do not start or advance work.",
   "Trace viewer: only receipts, findings and command evidence are shown.",

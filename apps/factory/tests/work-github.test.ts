@@ -38,12 +38,12 @@ test("migrator policy excludes manifests, config, rules, credentials, traversal 
  for(const path of ["AGENTS.md","app/AGENTS.md",".agents/skills/a.md",".github/workflows/ci.yml","factory/CONTRACT.md","apps/factory/agents/migrator/agent/instructions.ts","../escape","app//file",".env.local","app/.env","vendor/pkg.tgz","app/.output/file","package.json","nuxt.config.ts","pnpm-lock.yaml","tsconfig.json","app/tsconfig.app.json","vercel.json","playwright.config.ts","README.md","server/node_modules/x.js"]){assert.equal(allowedWorkPath(path),false,path);}
  assert.equal(allowedWorkPath("app/app.vue"),true);assert.equal(allowedWorkPath("server/utils/data.ts"),true);assert.equal(allowedWorkPath("e2e/todos.spec.ts"),true);assert.equal(allowedWorkPath("app.config.ts"),true);assert.equal(allowedWorkPath("docs/demo.md"),false);
 });
-test("publication creates only one immutable feature branch and draft PR across retries",async t=>{
+test("publication creates only one immutable dev branch and PR across retries",async t=>{
  const writes=mockGitHub(t);
  const first=await publishWork("test-token",input);const second=await publishWork("test-token",input);
  assert.deepEqual(first,second);assert.equal(first.headSha,head);
  assert.equal(writes.filter(x=>x.path==="git/refs").length,1);assert.equal(writes.filter(x=>x.path==="git/commits").length,1);assert.equal(writes.filter(x=>x.path==="pulls").length,1);
- const body=writes.find(x=>x.path==="pulls")!.body;assert.equal(body.draft,true);assert.equal(body.base,"main");assert.equal(body.head,workBranch(input.sessionId));
+ const body=writes.find(x=>x.path==="pulls")!.body;assert.equal(body.draft,false);assert.equal(body.base,"main");assert.equal(body.head,workBranch(input.sessionId));
  assert.ok(body.body.startsWith(input.body+"\n\n<!-- Factory-Owner: "+input.sessionId));
  assert.ok(body.body.endsWith(`Factory-Session: ${createHash("sha256").update(input.sessionId).digest("hex")}\nFactory-Base: ${base} -->`));
 });

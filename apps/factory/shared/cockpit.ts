@@ -8,7 +8,8 @@ export const workOrderAdmissionSchema = z.discriminatedUnion('kind', [
  z.object({kind:z.literal('unsupported'),reason:admissionText,evidence:admissionList}).strict(),
 ]);
 export type WorkOrderAdmission = z.infer<typeof workOrderAdmissionSchema>;
-export const draftInput = z.object({ title: z.string().trim().min(1).max(200), request: z.string().trim().min(1).max(40000), admission: workOrderAdmissionSchema.optional() }).strict();
+const repositoryField = z.string().regex(/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/);
+export const draftInput = z.object({ title: z.string().trim().min(1).max(200), request: z.string().trim().min(1).max(40000), admission: workOrderAdmissionSchema.optional(), prototype: z.object({ repository: repositoryField, ref: z.string().min(1).max(200) }).strict().optional(), repository: repositoryField.optional() }).strict();
 export const feedbackInput = z.object({ verdict: z.enum(['useful','not-useful']), reason: z.string().max(500) }).strict();
 export const runInput = z.object({ label: z.string().max(200), station: z.enum(['migrator','quality-gate','security-gate','loop']), operationId: z.string().max(240).optional(), execution: z.enum(['owner','dispatcher','direct']).optional(), rootAgent:z.enum(['migrator','quality-gate','security-gate']).optional(), deliveryId: z.string().optional() }).strict();
 export const recordSchema = z.object({ id: idSchema, version: z.number().int().positive(), updatedAt: z.string(), createdAt: z.string(), value: z.record(z.string(), z.unknown()) });

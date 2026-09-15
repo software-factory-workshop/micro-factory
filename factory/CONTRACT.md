@@ -6,10 +6,16 @@ only. Anything dated, historical or aspirational belongs in `factory/evidence/`
 
 ## Purpose
 
-One v0 prototype in, one verified Nuxt draft pull request out. The prototype
-repository is read-only input. The target repository holds a Nuxt 4 shell that
-extends the ADEO Nuxt UI layer; the migrated application lands there as a draft
-PR on a factory-owned branch. A person merges.
+One v0 prototype in, one verified Nuxt pull request with a live preview out,
+merged into `main` when a person approves. The prototype repository is
+read-only input; each delivery names it. The host derives the target repository
+from the prototype name (`adeo-kanban-proto` becomes `adeo-kanban-nuxt`),
+generates it from the shell template `adeo-nuxt-shell` when it does not exist,
+creates its git-linked Vercel project behind Passport and deploys `main` (the
+bare shell) to production, all before any station runs. The migrated
+application lands as one pull request from `dev` to `main`; its preview
+deployment is the review surface. When both gates approve the exact head, a
+person approves in the cockpit and the host squash-merges into `main`.
 
 ## Stations
 
@@ -22,7 +28,7 @@ your station does not exist.
 
 - Migrator reads the prototype snapshot and the target shell, writes the Nuxt
   application, tests and end-to-end specs, verifies them and publishes one
-  draft PR through a host tool. It never merges.
+  pull request through a host tool. It never merges.
 - Quality gate inspects the exact PR base and head in separate snapshots,
   reruns every required check, compares unit test totals with the base and
   records one verdict bound to those SHAs. It has no write, publish or merge tool.
@@ -51,7 +57,10 @@ fixture into real persistence silently is a defect.
 ## Branch ownership
 
 At most one durable migrator session owns write access to a branch. The branch
-is `factory/work-<session hash>` and its PR is a draft. A revision continues
+is `dev` in the delivery's target repository; ownership is proven by the
+`Factory-Session` marker in the published commit, not by the branch name. An
+open `dev` pull request blocks a second delivery for the same prototype; a
+stale `dev` without an open pull request is cleared at bootstrap. A revision continues
 the same owner; an idle or expired owner never transfers ownership silently. A
 different contributor gets its own branch and a child PR targeting the parent
 branch. If the target advances, `refresh_target` three-way merges into the
@@ -84,6 +93,16 @@ least the base count, and no secret pattern is in the diff. `record_review`
 with `approve` and any blocker throws. A blocking finding cites `path:line` and
 evidence; the host records a blocking finding without them as nonblocking.
 
+## Bootstrap and merge
+
+The bootstrap credentials (`GITHUB_BOOTSTRAP_TOKEN`, `VERCEL_TOKEN`) exist only
+on the host and only for generating the target repository, creating its Vercel
+project and starting the production deployment of `main`. No station holds
+them. The merge is a host operation guarded by Cedar `merge_change`: it
+requires both gate approvals bound to the exact published head, no blocking
+finding, and a person's approval with a reason recorded on the receipt. Nothing
+merges without that approval.
+
 ## Authority
 
 Cedar guards `start_task`, `run_check`, `record_verification`, `record_review`,
@@ -96,7 +115,8 @@ as zero.
 
 ## Not in this factory
 
-Auto-merge of any class, scheduled runs, webhook triggers, a trace viewer and
+Auto-merge of any class (the host merges only after a person approves in the
+cockpit), scheduled runs, webhook triggers, a trace viewer and
 self-modification of the factory. (The security gate does review on a different
 model vendor than the migrator since 15 Sep.) The
 cockpit names each of these as missing.

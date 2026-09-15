@@ -1,8 +1,12 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 export const MIN_WORK_REQUEST_LENGTH = 20;
-export const migratorRequest = z.object({operationId:z.string().uuid(),title:z.string().trim().min(1).max(160),brief:z.string().trim().min(MIN_WORK_REQUEST_LENGTH).max(18000),parentPrNumber:z.number().int().positive().optional()}).strict();
-export const gateRequest = z.object({operationId:z.string().uuid(),prNumber:z.number().int().positive()}).strict();
+import { factoryRepository, prototypeRepository } from "./factory-config.ts";
+// owner/name, GitHub's own character set. The host, never a model, chooses these values.
+export const repositoryName = z.string().regex(/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/);
+export const prototypeInput = z.object({repository:repositoryName,ref:z.string().min(1).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9._\/-]*$/).default("main")}).strict();
+export const migratorRequest = z.object({operationId:z.string().uuid(),title:z.string().trim().min(1).max(160),brief:z.string().trim().min(MIN_WORK_REQUEST_LENGTH).max(18000),parentPrNumber:z.number().int().positive().optional(),repository:repositoryName.default(factoryRepository),prototype:prototypeInput.default({repository:prototypeRepository,ref:"main"})}).strict();
+export const gateRequest = z.object({operationId:z.string().uuid(),prNumber:z.number().int().positive(),repository:repositoryName.default(factoryRepository)}).strict();
 // Legacy names kept so the copied delivery loop and tests read unchanged.
 export const workerRequest = migratorRequest;
 export const reviewerRequest = gateRequest;
@@ -30,7 +34,7 @@ export function stationRequest(ctx:SessionContext) {
  return stationOf(ctx)==="migrator" ? migratorRequest.parse(JSON.parse(raw)) : gateRequest.parse(JSON.parse(raw));
 }
 
-export const revisionRequest=z.object({operationId:z.string().uuid(),prNumber:z.number().int().positive(),brief:z.string().trim().min(MIN_WORK_REQUEST_LENGTH).max(18000)}).strict();
+export const revisionRequest=z.object({operationId:z.string().uuid(),prNumber:z.number().int().positive(),brief:z.string().trim().min(MIN_WORK_REQUEST_LENGTH).max(18000),repository:repositoryName.default(factoryRepository)}).strict();
 export function currentRevision(ctx:SessionContext & {session:{auth:{current?:{attributes:Readonly<Record<string,unknown>>}|null}}}) {
  const raw=ctx.session.auth.current?.attributes.factoryRevision;
  return typeof raw==="string"?revisionRequest.parse(JSON.parse(raw)):null;

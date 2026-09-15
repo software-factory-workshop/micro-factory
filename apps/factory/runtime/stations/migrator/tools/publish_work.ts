@@ -10,7 +10,7 @@ import { publishWork,workBranch } from "../../../lib/work-github";
 import { changeResource } from "../../../lib/cedar/model.ts";
 import { factoryPrincipalFromStation,runGuardedFactoryOperation } from "../../../lib/cedar/guard.ts";
 import { githubConnectorName, verificationCommands } from "../../../lib/factory-config.ts";
-export default defineTool({description:"Publish verified source changes as one draft pull request on a host-chosen factory branch. Refuses if the changed-file digest moved since verify_work or verification did not pass. No merge. Protected manifest, config, policy and agent files cannot be published.",inputSchema:z.object({summary:z.string().min(10).max(3000).describe("Explain the final diff and why it matters to a reviewer. Name every fixture kept from the prototype. Use short paragraphs; omit task prompts, revision history, commands and session metadata."),limitations:z.array(z.string()).max(10)}).strict(),
+export default defineTool({description:"Publish verified source changes as one pull request from the factory's dev branch to main; its preview deployment is what a person reviews. Refuses if the changed-file digest moved since verify_work or verification did not pass. No merge. Protected manifest, config, policy and agent files cannot be published.",inputSchema:z.object({summary:z.string().min(10).max(3000).describe("Explain the final diff and why it matters to a reviewer. Name every fixture kept from the prototype. Use short paragraphs; omit task prompts, revision history, commands and session metadata."),limitations:z.array(z.string()).max(10)}).strict(),
  async execute(input,ctx){
   requireStation(ctx,"migrator");const log=useLogger(ctx);const state=workState.get();const request=migratorRequest.parse(stationRequest(ctx));
   if(!state.prepared)throw new Error("Prepare migrator workspace first.");
@@ -33,7 +33,7 @@ export default defineTool({description:"Publish verified source changes as one d
    context:{expectedRevision:state.revision,candidateSha:candidateDigest,baseSha:state.revision,verifiedSha:candidateDigest,branch,lane:"worker",budget:0,riskClass:"low",evidence:{id:evidenceId,source:"factory.verify_work",complete:true,candidateSha:candidateDigest}},
    execute:async()=>{
     const token=await getToken(githubConnectorName,{subject:{type:"app"}});
-    const publication=await publishWork(token,{sessionId:ctx.session.id,baseSha:state.revision,operationId:state.operationId,targetBranch:state.targetBranch,targetHeadSha:state.targetHeadSha,parentPrNumber:state.parentPrNumber,previous:state.publication?{number:state.publication.number,headSha:state.publication.headSha}:undefined,mergeTarget:state.mergeTarget,title:request.title,body:publicationBody(input.summary,input.limitations,state.commands.slice(-(verificationCommands.length+1)),{prototypeRevision:state.prototypeRevision,digest:candidateDigest}),changes},ctx.abortSignal);
+    const publication=await publishWork(token,{repository:state.repository,sessionId:ctx.session.id,baseSha:state.revision,operationId:state.operationId,targetBranch:state.targetBranch,targetHeadSha:state.targetHeadSha,parentPrNumber:state.parentPrNumber,previous:state.publication?{number:state.publication.number,headSha:state.publication.headSha}:undefined,mergeTarget:state.mergeTarget,title:request.title,body:publicationBody(input.summary,input.limitations,state.commands.slice(-(verificationCommands.length+1)),{prototypeRevision:state.prototypeRevision,digest:candidateDigest}),changes},ctx.abortSignal);
     const result={revisionProtocol:1,operationId:state.operationId,station:"migrator" as const,sessionId:ctx.session.id,revision:state.revision,prototypeRevision:state.prototypeRevision,digest:candidateDigest,publication,summary:input.summary,limitations:input.limitations,commands:state.commands,capturedAt:new Date().toISOString()};
     workState.update(s=>({...s,publication,recorded:true,completedOperations:{...s.completedOperations,[state.operationId]:result}}));
     return {publication,result};
@@ -41,6 +41,6 @@ export default defineTool({description:"Publish verified source changes as one d
    isSuccess:result=>!!result.publication,
   });
   const {publication}=authorized.output;
-  log.set({factory:{station:"migrator",stage:"publish_work",outcome:"draft_pr_created",operationId:state.operationId,prNumber:publication.number,headSha:publication.headSha,targetHeadSha:publication.targetHeadSha,targetBranch:publication.targetBranch}});
+  log.set({factory:{station:"migrator",stage:"publish_work",outcome:"pr_published",operationId:state.operationId,prNumber:publication.number,headSha:publication.headSha,targetHeadSha:publication.targetHeadSha,targetBranch:publication.targetBranch}});
   return {...authorized.output.result,authorization:authorized.audit};
  }});

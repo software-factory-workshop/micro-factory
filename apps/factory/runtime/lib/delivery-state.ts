@@ -7,6 +7,7 @@ import { gateStations, type GateStation } from './station-access.ts';
 import { deliveryFailureKindValues, resumeMessage, type ClassifiedDeliveryError } from './delivery-events.ts';
 import { modelUsageSchema, type ModelUsage } from './delivery-usage.ts';
 import type { WorkOrderAdmission } from '../../shared/cockpit.ts';
+import type { BootstrapResult } from './bootstrap.ts';
 
 export const deliveryRequest = workerRequest.extend({
   // Bounds same-owner repair rounds after blocking review findings. It is not a
@@ -181,6 +182,10 @@ export interface Delivery {
   request: DeliveryRequest;
   // The host-attached admission that satisfied the Cedar start_task policy.
   admission?: WorkOrderAdmission;
+  // Target repository, Vercel project and production deployment generated for this prototype before the migrator started.
+  bootstrap?: BootstrapResult;
+  // Recorded when a person approved the reviewed head in the cockpit and the host merged it.
+  merge?: { approvedBy: string; reason: string; commitSha: string; headSha: string; targetBranch: string; mergedAt: string };
   principalId: string;
   state: WorkState;
   phase: Phase;
@@ -512,6 +517,17 @@ export function nextGate(current: GateStation | undefined): GateStation | undefi
 
 // A review is usable only for the host-published candidate and captured target.
 // Gates run in order; every gate must approve without limitations before `ready`.
+/** Both gates approved the exact published head with no blocking finding: the head a person may merge. */
+export function mergeableHead(state: Delivery): string | undefined {
+  const publication = state.publication;
+  if (!publication || !['ready', 'human_review'].includes(state.phase)) return undefined;
+  for (const gate of gateStations) {
+    const review = state.reviews?.[gate];
+    if (!review || review.verdict !== 'approve' || review.headSha !== publication.headSha || review.baseSha !== publication.targetHeadSha || review.findings.some(f => f.severity === 'blocking')) return undefined;
+  }
+  return publication.headSha;
+}
+
 export function applyReview(state: Delivery, review: DeliveryReview) {
   const publication = state.publication;
   if (!publication || review.headSha !== publication.headSha || review.baseSha !== publication.targetHeadSha || review.targetBranch !== publication.targetBranch) {

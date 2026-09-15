@@ -14,12 +14,13 @@ export default defineTool({description:"Refresh your own workspace against its l
  async execute(_,ctx){
   requireStation(ctx,"migrator");const log=useLogger(ctx);const state=workState.get();if(!state.prepared||state.recorded)throw new Error("Prepare the active unpublished operation first.");
   const token=await getToken(githubConnectorName,{subject:{type:"app"}});
-  if(state.publication){const pr=await readPull(token,state.publication.number,ctx.abortSignal);if(pr.head.sha!==state.publication.headSha||pr.base.ref!==state.targetBranch)throw new WorkError("stale_head","Owned PR changed; preserving current workspace.");}
-  const targetHead=await readBranch(token,state.targetBranch,ctx.abortSignal);
+  const repository=state.repository;
+  if(state.publication){const pr=await readPull(token,state.publication.number,ctx.abortSignal,repository);if(pr.head.sha!==state.publication.headSha||pr.base.ref!==state.targetBranch)throw new WorkError("stale_head","Owned PR changed; preserving current workspace.");}
+  const targetHead=await readBranch(token,state.targetBranch,ctx.abortSignal,repository);
   if(targetHead===state.targetHeadSha){log.set({factory:{station:"migrator",stage:"refresh_target",outcome:"unchanged",targetHeadSha:targetHead}});return{phase:"Target unchanged",targetHeadSha:targetHead};}
   const sandbox=await ctx.getSandbox();const changes=await collectChanges(sandbox,state.baseline,true);
-  await assertRefreshCoverage(token,state.targetHeadSha,state.revision,targetHead,ctx.abortSignal);
-  const [base,ours,theirs]=await Promise.all([loadWorkSnapshot(token,state.targetHeadSha,ctx.abortSignal),loadWorkSnapshot(token,state.revision,ctx.abortSignal),loadWorkSnapshot(token,targetHead,ctx.abortSignal)]);
+  await assertRefreshCoverage(token,state.targetHeadSha,state.revision,targetHead,ctx.abortSignal,repository);
+  const [base,ours,theirs]=await Promise.all([loadWorkSnapshot(token,state.targetHeadSha,ctx.abortSignal,repository),loadWorkSnapshot(token,state.revision,ctx.abortSignal,repository),loadWorkSnapshot(token,targetHead,ctx.abortSignal,repository)]);
   const merged=await mergeSources(base,ours,theirs,changes,async(base,own,target)=>{
    await sandbox.writeTextFile({path:"merge/base",content:base});await sandbox.writeTextFile({path:"merge/ours",content:own});await sandbox.writeTextFile({path:"merge/target",content:target});
    const result=await sandbox.run({command:"git merge-file -p -L OWNER -L BASE -L TARGET /workspace/merge/ours /workspace/merge/base /workspace/merge/target"});

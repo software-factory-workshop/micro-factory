@@ -15,11 +15,11 @@ export async function stationOperation(request:Request,{from,params,resolveSessi
    try {
     const revision=revisionRequest.parse(await request.json());
     const token=await getToken(githubConnectorName,{subject:{type:"app"}});
-    const pr=await readPull(token,revision.prNumber);
+    const pr=await readPull(token,revision.prNumber,undefined,revision.repository);
     if(pr.state!=="open")throw new WorkError("invalid_request","Only open pull requests can be revised.");
     const ownerId=ownerFromBody(pr.body||"");const root=await recordedRoot(ownerId);const owner=root?rootSession(root,ownerId):attachSession(ownerId);
     const proof=await verifyOwnerStream(owner,ownerId,pr.number,pr.head.ref);
-    await verifyOwnerCommit(token,proof,ownerId);
+    await verifyOwnerCommit(token,proof,ownerId,undefined,revision.repository);
     const accepted=await owner.send("Apply the authenticated revision from prepare_work. Preserve the original task boundaries; revise your own PR only.",{turnPolicy:"queue",auth:{...auth,attributes:{...auth.attributes,factoryRevision:JSON.stringify(revision),factoryRevisionOperationId:revision.operationId}}});
     if(accepted.status!=="accepted"||!accepted.deliveryId)throw new WorkError("owner_unavailable","Original owner is no longer active; create a child PR instead.");
     return Response.json({sessionId:ownerId,ownerSessionId:ownerId,station:"migrator",execution:"owner",rootAgent:root,operationId:revision.operationId,deliveryId:accepted.deliveryId},{status:202});

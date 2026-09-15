@@ -17,7 +17,8 @@ export default defineTool({description:"Fetch the authenticated PR's exact base 
   if(workState.get().prepared){log.set({factory:{station:gate,stage:"prepare_review",outcome:"already_prepared",prNumber:workState.get().pull?.number}});yield{phase:"Prepared",pull:workState.get().pull};return;}
   verifyScope(await getVercelOidcToken());yield{phase:"Preparing independent review"};
   const token=await getToken(githubConnectorName,{subject:{type:"app"}});
-  const pull=await loadPullRequest(token,gateRequest.parse(stationRequest(ctx)).prNumber,ctx.abortSignal);
+  const gateInput=gateRequest.parse(stationRequest(ctx));const repository=gateInput.repository;
+  const pull=await loadPullRequest(token,gateInput.prNumber,ctx.abortSignal,repository);
   const sandbox=await ctx.getSandbox();workState.update(s=>({...s,sandboxStarted:true}));
   const setup=await prepareRepository(sandbox,token,ctx.abortSignal,pull.snapshot,undefined,pull.baseSnapshot);
   // The read-only v0 prototype the candidate claims to migrate, pinned to the revision the
@@ -34,7 +35,7 @@ export default defineTool({description:"Fetch the authenticated PR's exact base 
   const changed=pull.files.filter(file=>file.status!=="removed").map(file=>({path:file.filename,content:headByPath.get(file.filename)?.toString("utf8")??null}));
   const secretFindings=scanChangesForSecrets(changed);
   const metadata={number:pull.number,url:pull.url,title:pull.title,body:pull.body,baseSha:pull.baseSha,headSha:pull.headSha,targetBranch:pull.targetBranch,files:pull.files};
-  workState.update(s=>({...s,gate,prepared:setup.prepared,basePrepared:setup.basePrepared,revision:setup.revision,baseline:setup.files.map(({file,sha256})=>({file,sha256})),commands:setup.commands,pull:metadata,contextGaps:[...setup.contextGaps,...pull.contextGaps,...setup.baseContextGaps],secretScanClean:secretFindings.length===0,verificationFindings:secretFindings}));
+  workState.update(s=>({...s,repository,prototypeRepository:prototype.repository,gate,prepared:setup.prepared,basePrepared:setup.basePrepared,revision:setup.revision,baseline:setup.files.map(({file,sha256})=>({file,sha256})),commands:setup.commands,pull:metadata,contextGaps:[...setup.contextGaps,...pull.contextGaps,...setup.baseContextGaps],secretScanClean:secretFindings.length===0,verificationFindings:secretFindings}));
   log.set({factory:{station:gate,stage:"prepare_review",outcome:setup.prepared?"prepared":"incomplete",prNumber:pull.number,headSha:pull.headSha,baseSha:pull.baseSha,fileCount:pull.files.length,commandCount:setup.commands.length,secretFindings:secretFindings.length}});
   yield{phase:setup.prepared?"Prepared":"Setup failed",gate,pull:metadata,policy:"/workspace/review-policy",baseWorkspace:"/workspace/base",workspace:"/workspace/repo",prototype,hostFindings:secretFindings,commands:setup.commands,limitations:[...setup.contextGaps,...pull.contextGaps,...setup.baseContextGaps,...hostReviewLimitations(pull.files,{e2eRanOnHead:false,secretScanClean:secretFindings.length===0})]};
  },
@@ -47,12 +48,13 @@ export default defineTool({description:"Fetch the authenticated PR's exact base 
 async function exportPrototype(sandbox:Awaited<ReturnType<any>>,token:string,signal:AbortSignal|undefined,headEntries:Array<{file:string;content:Buffer}>):Promise<{repository:string;revision:string;workspace:string;fileCount:number;note:string}|{repository:string;workspace:string;error:string}> {
   let ref="main";
   const manifest=headEntries.find(entry=>entry.file===".factory-snapshot.json");
-  if(manifest){try{const parsed=JSON.parse(manifest.content.toString("utf8")) as {prototype?:{revision?:string}};if(parsed.prototype?.revision&&/^[a-f0-9]{40}$/.test(parsed.prototype.revision))ref=parsed.prototype.revision;}catch{/* manifest unreadable: fall back to main */}}
+  let repo=prototypeRepository;
+  if(manifest){try{const parsed=JSON.parse(manifest.content.toString("utf8")) as {prototype?:{revision?:string;repository?:string}};if(parsed.prototype?.revision&&/^[a-f0-9]{40}$/.test(parsed.prototype.revision))ref=parsed.prototype.revision;if(parsed.prototype?.repository&&/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(parsed.prototype.repository))repo=parsed.prototype.repository;}catch{/* manifest unreadable: fall back to the default prototype */}}
   try{
-    const prototype=await loadRepository(token,signal,prototypeRepository,ref) as {revision:string;entries:Array<{file:string;content:Buffer}>};
-    const fileCount=await writePrototype(sandbox,{...prototype,repository:prototypeRepository});
-    return{repository:prototypeRepository,revision:prototype.revision,workspace:"/workspace/prototype",fileCount,note:"Read-only v0 prototype input. Compare the candidate against it for fidelity; fixtures found here stay fixtures."};
+    const prototype=await loadRepository(token,signal,repo,ref) as {revision:string;entries:Array<{file:string;content:Buffer}>};
+    const fileCount=await writePrototype(sandbox,{...prototype,repository:repo});
+    return{repository:repo,revision:prototype.revision,workspace:"/workspace/prototype",fileCount,note:"Read-only v0 prototype input. Compare the candidate against it for fidelity; fixtures found here stay fixtures."};
   }catch(error){
-    return{repository:prototypeRepository,workspace:"/workspace/prototype",error:`Prototype snapshot unavailable: ${error instanceof Error?error.message:String(error)}. Fidelity to the prototype cannot be checked in this review.`};
+    return{repository:repo,workspace:"/workspace/prototype",error:`Prototype snapshot unavailable: ${error instanceof Error?error.message:String(error)}. Fidelity to the prototype cannot be checked in this review.`};
   }
 }

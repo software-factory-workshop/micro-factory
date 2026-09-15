@@ -4,7 +4,7 @@ import { describeDeliveryPhase, formatDeliveryUpdatedAt } from "../utils/deliver
 import { MIN_WORK_REQUEST_LENGTH } from "../utils/work-station";
 import { copyText, shortIdentifier } from "../utils/technical-details";
 import { formatModelUsage } from "../utils/model-usage.ts";
-import { missingCapabilities, factoryRepositoryUrl, prototypeRepositoryUrl } from "../../runtime/lib/factory-config.ts";
+import { missingCapabilities } from "../../runtime/lib/factory-config.ts";
 
 interface Review {
   gate?: string;
@@ -35,10 +35,12 @@ interface Delivery {
   review?: Review;
   execution?: { attempt: number; station: string; operationId: string; sessionId: string; deliveryId?: string };
   attempt?: number;
-  mergeDecision?: { status: string; reason?: string };
+  mergeDecision?: { status: string; reason?: string; commitSha?: string };
+  bootstrap?: { repository: string; repositoryUrl: string; projectName: string; productionUrl: string; prototype: { repository: string; ref: string; revision: string }; created: { repository: boolean; project: boolean; deployment: boolean }; warnings: string[] };
+  merge?: { approvedBy: string; reason: string; commitSha: string; headSha: string; targetBranch: string; mergedAt: string };
   questions?: Array<{ question: string; options?: string[]; operationId: string; sessionId: string; askedAt: string; answer?: string; answeredBy?: string; answeredAt?: string }>;
   error?: string;
-  request?: { title?: string; brief?: string; parentPrNumber?: number; draftId?: string };
+  request?: { title?: string; brief?: string; parentPrNumber?: number; draftId?: string; repository?: string; prototype?: { repository: string; ref: string } };
   admission?: { kind: string; outcome?: string; scope?: string[]; evidence?: string[]; verification?: string[] };
   history: Array<{ phase: string; to?: string; at?: string; actor?: string; reason?: string; receiptId?: string; sessionId?: string; headSha?: string; operationId?: string; attempt?: number }>;
   usage?: { model?: string; inputTokens?: number; outputTokens?: number; usd?: number; factorySha?: string };
@@ -49,11 +51,15 @@ const props = withDefaults(defineProps<{
   title?: string;
   brief?: string;
   draftId?: string;
+  repository?: string;
+  prototype?: { repository: string; ref: string };
   mode?: "compose" | "run";
 }>(), {
   title: "",
   brief: "",
   draftId: "",
+  repository: "",
+  prototype: undefined,
   mode: "compose",
 });
 const emit = defineEmits<{ started: [value: Delivery] }>();
@@ -65,6 +71,9 @@ const error = ref("");
 const working = ref(false);
 const stopping = ref(false);
 const revision = ref("");
+const mergeReason = ref("");
+const merging = ref(false);
+const mergeFocus = ref(false);
 const confirmStop = ref(false);
 const reconciliation = ref<ReconciliationResult>();
 const reconciling = ref(false);
@@ -137,7 +146,28 @@ function attemptLink(item: { station: string; sessionId: string; operationId?: s
 }
 const briefLength = computed(() => props.brief.trim().length);
 const briefReady = computed(() => briefLength.value >= MIN_WORK_REQUEST_LENGTH);
-const canCompose = computed(() => props.mode === "compose" && !!props.draftId);
+const canCompose = computed(() => props.mode === "compose" && !!props.draftId && !!props.repository && !!props.prototype);
+const repoUrl = (repository?: string) => repository ? `https://github.com/${repository}` : "";
+// Both gates approved the exact published head with no blocking finding, and nothing is merged yet.
+const mergeable = computed(() => {
+  const value = run.value;
+  const head = value?.publication?.headSha;
+  if (!value || !head || !["ready", "human_review"].includes(value.phase)) return false;
+  return ["quality-gate", "security-gate"].every(gate => { const review = value.reviews?.[gate]; return review?.verdict === "approve" && review.headSha === head && !(review.findings ?? []).some(f => f.severity === "blocking"); });
+});
+async function approveMerge() {
+  if (!run.value || !mergeable.value || merging.value || mergeReason.value.trim().length < 3) return;
+  merging.value = true;
+  error.value = "";
+  try {
+    run.value = await $fetch<Delivery>(`/factory/delivery/${encodeURIComponent(run.value.id)}/merge`, { method: "POST", body: { operationId: crypto.randomUUID(), reason: mergeReason.value.trim() }, retry: 0 });
+    mergeReason.value = "";
+  } catch {
+    error.value = "The merge was not confirmed. Refresh: the pull request may still be open with your approval pending.";
+  } finally {
+    merging.value = false;
+  }
+}
 function selectFlowNode(id: string) {
   const delivery = run.value;
   if (!delivery) return;
@@ -187,7 +217,7 @@ async function start() {
   error.value = "";
   operationId ??= crypto.randomUUID();
   try {
-    run.value = await $fetch<Delivery>("/factory/delivery", { method: "POST", body: { operationId, draftId: props.draftId, title: props.title, brief: props.brief }, retry: 0 });
+    run.value = await $fetch<Delivery>("/factory/delivery", { method: "POST", body: { operationId, draftId: props.draftId, title: props.title, brief: props.brief, repository: props.repository, prototype: props.prototype }, retry: 0 });
     emit("started", run.value);
     await router.replace({ path: "/work/run", query: { delivery: run.value.id } });
     await remember(run.value);
@@ -346,11 +376,16 @@ onBeforeUnmount(() => {
       </div>
     </div>
     <p class="delivery-path-label">Durable execution</p>
-    <p class="delivery-intro">The migrator turns the v0 prototype into a Nuxt application and publishes one draft PR. The quality gate and then the security gate review that exact head. Blocking findings return to the same branch owner for at most the configured number of revisions. Nothing is merged by the factory.</p>
+    <p class="delivery-intro">The host generates the target repository from the shell template and its Vercel project, then the migrator turns the v0 prototype into a Nuxt application and publishes one pull request from <code>dev</code> to <code>main</code> with a live preview. The quality gate and then the security gate review that exact head. Blocking findings return to the same branch owner for at most the configured number of revisions. When both gates approve, you approve here and the host merges into <code>main</code>.</p>
     <div v-if="run?.request?.brief" class="delivery-brief">
       <p class="delivery-brief-label">Brief</p>
       <p class="delivery-brief-text">{{ run.request.brief }}</p>
-      <p class="small muted">Prototype <a :href="prototypeRepositoryUrl" target="_blank" rel="noopener noreferrer">{{ prototypeRepositoryUrl.replace('https://github.com/', '') }}</a> · target <a :href="factoryRepositoryUrl" target="_blank" rel="noopener noreferrer">{{ factoryRepositoryUrl.replace('https://github.com/', '') }}</a></p>
+      <p class="small muted">
+        <template v-if="run.request.prototype">Prototype <a :href="repoUrl(run.request.prototype.repository)" target="_blank" rel="noopener noreferrer">{{ run.request.prototype.repository }}</a> @ <code>{{ run.bootstrap?.prototype.revision?.slice(0, 10) || run.request.prototype.ref }}</code> · </template>
+        <template v-if="run.request.repository">target <a :href="repoUrl(run.request.repository)" target="_blank" rel="noopener noreferrer">{{ run.request.repository }}</a></template>
+        <template v-if="run.bootstrap"> · production <a :href="run.bootstrap.productionUrl" target="_blank" rel="noopener noreferrer">{{ run.bootstrap.productionUrl.replace('https://', '') }}</a></template>
+      </p>
+      <p v-if="run.bootstrap" class="small muted">Bootstrap: repository {{ run.bootstrap.created.repository ? 'generated from the template' : 'reused' }}, Vercel project {{ run.bootstrap.created.project ? 'created' : 'reused' }}, production {{ run.bootstrap.created.deployment ? 'deploy of main started' : 'already deployed' }}.<template v-if="run.bootstrap.warnings.length"> Warnings: {{ run.bootstrap.warnings.join(' ') }}</template></p>
     </div>
     <div v-if="run?.admission" class="delivery-brief admission">
       <p class="delivery-brief-label">Admission · {{ run.admission.kind }}</p>
@@ -414,7 +449,7 @@ onBeforeUnmount(() => {
     </section>
 
     <section v-if="gateReviews.length" class="review-evidence" aria-labelledby="delivery-review-heading">
-      <div class="section-heading"><h3 id="delivery-review-heading">Gate verdicts</h3><span class="small muted">Verdict applies to head <code>{{ run?.review?.headSha || run?.publication?.headSha }}</code>; no merge was performed.</span></div>
+      <div class="section-heading"><h3 id="delivery-review-heading">Gate verdicts</h3><span class="small muted">Verdict applies to head <code>{{ run?.review?.headSha || run?.publication?.headSha }}</code>{{ run?.merge ? '; merged after approval' : '; nothing merged until you approve' }}.</span></div>
       <div v-for="[gate, review] in gateReviews" :key="gate" class="gate-verdict">
         <div class="review-gates" :aria-label="`${gate} verification`">
           <UBadge color="neutral" variant="soft">{{ gate }} · {{ review.verdict }}</UBadge>
@@ -461,6 +496,8 @@ onBeforeUnmount(() => {
       <UButton v-if="attention === 'blocked'" color="warning" :disabled="working" icon="i-lucide-rotate-ccw" @click="resume">Resume</UButton>
       <UButton v-if="attention === 'flawed'" :disabled="working" icon="i-lucide-message-square-more" @click="revisionFocus = true">Request revision</UButton>
       <UButton v-if="attention === 'waiting'" icon="i-lucide-message-circle-reply" @click="ownerAnswerFocus = true">Answer</UButton>
+      <UButton v-if="mergeable" color="success" icon="i-lucide-git-merge" :disabled="merging" @click="mergeFocus = true">Approve and merge</UButton>
+      <UButton v-if="run?.merge && run.bootstrap" :to="run.bootstrap.productionUrl" target="_blank" rel="noopener noreferrer" icon="i-lucide-rocket">Open production</UButton>
       <UButton v-if="attention === 'ready' && run?.publication" :to="run.publication.url" target="_blank" rel="noopener noreferrer" icon="i-lucide-git-pull-request">Open PR #{{ run.publication.number }}</UButton>
       <UButton v-else-if="run?.publication" :to="run.publication.url" target="_blank" rel="noopener noreferrer" variant="outline" icon="i-lucide-git-pull-request">PR #{{ run.publication.number }}</UButton>
       <UButton v-if="run?.publication?.preview?.url && run.publication.preview.state === 'success'" :to="run.publication.preview.url" target="_blank" rel="noopener noreferrer" variant="outline" icon="i-lucide-globe">Open preview</UButton>
@@ -469,7 +506,13 @@ onBeforeUnmount(() => {
       <UButton v-if="run && attention !== 'blocked'" variant="outline" :loading="working" icon="i-lucide-refresh-cw" @click="refresh">Refresh</UButton>
       <UButton v-if="run && !stopped.has(run.phase)" variant="outline" color="error" :loading="stopping" :disabled="working || stopping" @click="requestCancel">Stop</UButton>
     </div>
-    <p v-if="run" class="small muted">Attention: <strong>{{ attention }}</strong>. Verdicts apply to head <code>{{ run.publication?.headSha || 'not published' }}</code>; no merge was performed by the factory.</p>
+    <p v-if="run" class="small muted">Attention: <strong>{{ attention }}</strong>. Verdicts apply to head <code>{{ run.publication?.headSha || 'not published' }}</code>{{ run.merge ? `; merged into ${run.merge.targetBranch} as ${run.merge.commitSha.slice(0, 10)} after ${run.merge.approvedBy} approved` : '; the host merges only after your approval' }}.</p>
+    <fieldset v-if="mergeable" class="decision merge-approval" :class="{ focused: mergeFocus }">
+      <legend>Approve the merge</legend>
+      <p class="small">Both gates approved head <code>{{ run?.publication?.headSha?.slice(0, 12) }}</code>. Open the preview first; on approval the host squash-merges PR #{{ run?.publication?.number }} into <code>{{ run?.publication?.targetBranch }}</code> and Vercel deploys production.</p>
+      <UFormField label="Reason (recorded on the receipt)" name="merge-reason"><UInput v-model="mergeReason" :maxlength="1000" placeholder="Preview checked: board renders with my identity, cards persist…" /></UFormField>
+      <UButton color="success" icon="i-lucide-git-merge" :loading="merging" :disabled="merging || mergeReason.trim().length < 3" @click="approveMerge">Merge into {{ run?.publication?.targetBranch }}</UButton>
+    </fieldset>
     <UModal
       :open="confirmStop"
       title="Stop this delivery?"

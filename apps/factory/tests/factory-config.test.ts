@@ -16,5 +16,5 @@ test("factory configuration keeps host bindings in one plain module", () => {
   assert.ok(Object.values(factoryBlobPaths).every(path => path.startsWith("micro-factory/")));
   assert.equal(new Set(Object.values(factoryPorts)).size, Object.values(factoryPorts).length);
   assert.ok(missingCapabilities.some(item => /auto-merge/i.test(item)) && missingCapabilities.some(item => /webhook/i.test(item)) && missingCapabilities.some(item => /self-modification/i.test(item)));
-  assert.match(workBranch("wrun_example"), /^factory\/work-[a-f0-9]{24}$/);
+  assert.equal(workBranch("wrun_example"), "dev");
 });

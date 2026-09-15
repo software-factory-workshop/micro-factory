@@ -36,7 +36,7 @@ attached.
 
 | Station | Trigger and input | Owned outcome | Fallback |
 | --- | --- | --- | --- |
-| Migrator | An authenticated migration task or same-owner revision from prepare_work, plus the read-only prototype snapshot | A Nuxt application in the target shell that passes the required checks and becomes one draft PR | Preserve the workspace, state the concrete blocker and do not manufacture a PR. |
+| Migrator | An authenticated migration task or same-owner revision from prepare_work, plus the read-only prototype snapshot | A Nuxt application in the target shell that passes the required checks and becomes one pull request from dev to main | Preserve the workspace, state the concrete blocker and do not manufacture a PR. |
 | Quality gate | An authenticated PR number and the exact base/head snapshots from prepare_review | One correctness and maintainability verdict tied to those exact revisions | Record incomplete evidence or requested changes. Never turn a missing check into approval. |
 | Security gate | An authenticated PR number and the exact base/head snapshots from prepare_review | One security verdict tied to those exact revisions | Record incomplete evidence or requested changes. A concern without a line is a limitation, not a finding. |
 
@@ -135,7 +135,7 @@ The migrator is not done until it has:
 3. Migrated every prototype feature with labelled fixtures preserved and added
    unit and end-to-end coverage.
 4. Run verify_work after the final edit and preserved every actual result.
-5. Applied the reviewability guidance, then published one honest draft PR, or
+5. Applied the reviewability guidance, then published one honest pull request, or
    reported the precise blocker without claiming publication.
 
 A gate is not done until it has:
@@ -171,7 +171,7 @@ Receipt:
     Evidence: the required checks passed on the candidate digest; the fixture is named in the summary.
     Changed paths: the page, the data module, the server route, the unit test and the e2e spec.
     Limitations: none when all required checks ran; otherwise name the exact missing check and mark the run incomplete.
-    Next step: review the draft PR. If a required check is missing, the status is incomplete.
+    Next step: review the pull request and its preview. If a required check is missing, the status is incomplete.
 
 The repository's source, tests and host receipts remain the evidence. This
 contract improves the run's habits; it does not prove that a run succeeded.

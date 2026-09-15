@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { includeSource, repository } from "./github.mjs";
+import { factoryBranch } from "./factory-config.ts";
 import { readTarGz, gitBlobSha } from "./tarball.ts";
 
 const sha = z.string().regex(/^[a-f0-9]{40}$/);
@@ -12,8 +13,8 @@ export const MAX_WORK_BYTES = 2_000_000;
 export interface WorkEntry { file: string; content: Buffer; mode: "100644" | "100755" }
 export interface WorkSnapshot { revision: string; treeSha: string; entries: WorkEntry[]; excludedPaths: string[] }
 export interface WorkChange { path: string; content: string | null }
-export interface PublishWorkInput { sessionId:string; baseSha:string; title:string; body:string; changes:WorkChange[]; operationId?:string; targetBranch?:string; targetHeadSha?:string; parentPrNumber?:number; previous?:{number:number;headSha:string}; mergeTarget?:boolean }
-export interface WorkPublication {branch:string;number:number;url:string;headSha:string;baseSha:string;ownerSessionId:string;targetBranch:string;targetHeadSha:string;parentPrNumber?:number;ownershipCommitSha?:string;targetAdvanced?:boolean}
+export interface PublishWorkInput { repository?:string; sessionId:string; baseSha:string; title:string; body:string; changes:WorkChange[]; operationId?:string; targetBranch?:string; targetHeadSha?:string; parentPrNumber?:number; previous?:{number:number;headSha:string}; mergeTarget?:boolean }
+export interface WorkPublication {repository?:string;branch:string;number:number;url:string;headSha:string;baseSha:string;ownerSessionId:string;targetBranch:string;targetHeadSha:string;parentPrNumber?:number;ownershipCommitSha?:string;targetAdvanced?:boolean}
 export class WorkError extends Error {readonly code:string;constructor(code:string,message:string){super(message);this.code=code;}}
 export function safeBranch(branch:string){if(!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/.test(branch)||branch.includes("..")||branch.includes("//")||branch.endsWith("/")||branch.endsWith(".lock"))throw new WorkError("invalid_request","Unsupported branch name.");return branch;}
 
@@ -49,32 +50,34 @@ export function allowedWorkPath(path: string): boolean {
   if (path.split("/").some(part => ["AGENTS.md", "CLAUDE.md", "SKILL.md", ".output", ".nuxt", "dist", "coverage", "node_modules"].includes(part) || part.startsWith(".env"))) return false;
   return true;
 }
-async function request(token: string, path: string, signal?: AbortSignal, body?: unknown, method?:"PATCH") {
+const repoName = z.string().regex(/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/);
+async function request(token: string, path: string, signal?: AbortSignal, body?: unknown, method?:"PATCH"|"PUT"|"DELETE", repo: string = repository) {
+  repoName.parse(repo);
   for (let attempt = 1; ; attempt += 1) {
-  const response = await fetch(`https://api.github.com/repos/${repository}/${path}`, {
+  const response = await fetch(`https://api.github.com/repos/${repo}/${path}`, {
     method: method || (body === undefined ? "GET" : "POST"), redirect: "error",
     headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.any([signal || new AbortController().signal, AbortSignal.timeout(20000)]),
   });
-  if (response.ok) return { data: await response.json(), next: response.headers.get("link")?.includes('rel="next"') || false };
+  if (response.ok) return { data: response.status === 204 ? null : await response.json(), next: response.headers.get("link")?.includes('rel="next"') || false };
   // Reads are retried on rate limits and 5xx; writes are not replayed blindly (callers own idempotency).
   const delay = body === undefined && method === undefined && attempt < 3 ? retryDelayMs(response, attempt) : undefined;
   if (delay === undefined) throw new GitHubError(response.status, await githubErrorDetail(response));
   await new Promise(resolve => setTimeout(resolve, delay));
   }
 }
-export async function commitTree(token: string, revision: string, signal?: AbortSignal) {
+export async function commitTree(token: string, revision: string, signal?: AbortSignal, repo: string = repository) {
   if (revision !== "main") sha.parse(revision);
-  const commit = z.object({ sha, commit: z.object({ tree: z.object({ sha }) }) }).parse((await request(token, `commits/${revision}`, signal)).data);
+  const commit = z.object({ sha, commit: z.object({ tree: z.object({ sha }) }) }).parse((await request(token, `commits/${revision}`, signal, undefined, undefined, repo)).data);
   if (revision !== "main" && commit.sha !== revision) throw new Error("GitHub returned a different commit.");
-  const tree = z.object({ truncated: z.boolean(), tree: z.array(treeItem) }).parse((await request(token, `git/trees/${commit.commit.tree.sha}?recursive=1`, signal)).data);
+  const tree = z.object({ truncated: z.boolean(), tree: z.array(treeItem) }).parse((await request(token, `git/trees/${commit.commit.tree.sha}?recursive=1`, signal, undefined, undefined, repo)).data);
   if (tree.truncated || tree.tree.length > 5000) throw new Error("Repository tree is incomplete or exceeds the station limit.");
   return { revision: commit.sha, treeSha: commit.commit.tree.sha, tree: tree.tree };
 }
-async function archiveEntries(token: string, revision: string, signal?: AbortSignal): Promise<Map<string, Buffer> | undefined> {
+async function archiveEntries(token: string, revision: string, signal?: AbortSignal, repo: string = repository): Promise<Map<string, Buffer> | undefined> {
   try {
-    const response = await fetch(`https://api.github.com/repos/${repository}/tarball/${revision}`, {
+    const response = await fetch(`https://api.github.com/repos/${repoName.parse(repo)}/tarball/${revision}`, {
       redirect: "follow",
       headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
       signal: AbortSignal.any([signal || new AbortController().signal, AbortSignal.timeout(60000)]),
@@ -87,37 +90,37 @@ async function archiveEntries(token: string, revision: string, signal?: AbortSig
     return undefined; // the per-blob path still works, only slower
   }
 }
-export async function loadWorkSnapshot(token: string, revision: string = "main", signal?: AbortSignal): Promise<WorkSnapshot> {
-  const source = await commitTree(token, revision, signal);
+export async function loadWorkSnapshot(token: string, revision: string = "main", signal?: AbortSignal, repo: string = repository): Promise<WorkSnapshot> {
+  const source = await commitTree(token, revision, signal, repo);
   const selected = source.tree.filter(item => item.type === "blob" && ["100644", "100755"].includes(item.mode) && safePath(item.path) && includeSource(item.path));
   if (selected.length > 1500 || selected.reduce((sum, item) => sum + (item.size || 0), 0) > 50_000_000) throw new Error("Source snapshot exceeds the station limit.");
   // One archive request per revision instead of one blob request per file. Every entry is
   // checked against the blob id the tree already named; anything missing or mismatched falls
   // back to the per-blob read, so the archive can never substitute content.
-  const archived = await archiveEntries(token, source.revision, signal);
+  const archived = await archiveEntries(token, source.revision, signal, repo);
   const entries: WorkEntry[] = [];
   for (let offset = 0; offset < selected.length; offset += 8) entries.push(...await Promise.all(selected.slice(offset, offset + 8).map(async item => {
     const fromArchive = archived?.get(item.path);
     if (fromArchive && gitBlobSha(fromArchive) === item.sha) return { file: item.path, content: fromArchive, mode: item.mode as WorkEntry["mode"] };
-    const blob = z.object({ encoding: z.literal("base64"), content: z.string() }).parse((await request(token, `git/blobs/${item.sha}`, signal)).data);
+    const blob = z.object({ encoding: z.literal("base64"), content: z.string() }).parse((await request(token, `git/blobs/${item.sha}`, signal, undefined, undefined, repo)).data);
     const content = Buffer.from(blob.content, "base64");
     if (content.length > 50_000_000) throw new Error("Source blob exceeds station limit.");
     return { file: item.path, content, mode: item.mode as WorkEntry["mode"] };
   })));
   return { revision: source.revision, treeSha: source.treeSha, entries, excludedPaths: source.tree.filter(item => item.type !== "tree" && !selected.includes(item)).map(item => item.path) };
 }
-const pullSchema = z.object({ number: z.number().int().positive(), html_url: z.string().url(), title: z.string(), body: z.string().nullable(), state: z.string(), merged: z.boolean().optional(), merge_commit_sha: sha.nullable().optional(), draft: z.boolean().optional(), head: z.object({ sha, ref: z.string(), repo: z.object({ full_name: z.literal(repository) }) }), base: z.object({ sha, ref: z.string(), repo: z.object({ full_name: z.literal(repository) }) }) });
+const pullSchema = z.object({ number: z.number().int().positive(), html_url: z.string().url(), title: z.string(), body: z.string().nullable(), state: z.string(), merged: z.boolean().optional(), merge_commit_sha: sha.nullable().optional(), draft: z.boolean().optional(), head: z.object({ sha, ref: z.string(), repo: z.object({ full_name: z.string() }) }), base: z.object({ sha, ref: z.string(), repo: z.object({ full_name: z.string() }) }) });
 /**
  * The target project's Vercel preview for a commit, read from the GitHub Deployments Vercel
  * creates for every pushed branch (environment_url), so the factory needs no Vercel token.
  * Undefined until Vercel has posted a deployment status for that exact head.
  */
-export async function readPreviewDeployment(token: string, headSha: string, signal?: AbortSignal): Promise<{ url: string; state: string; environment: string; checkedAt: string } | undefined> {
+export async function readPreviewDeployment(token: string, headSha: string, signal?: AbortSignal, repo: string = repository): Promise<{ url: string; state: string; environment: string; checkedAt: string } | undefined> {
   sha.parse(headSha);
-  const deployments = z.array(z.object({ id: z.number(), environment: z.string(), sha: z.string() })).parse((await request(token, `deployments?sha=${headSha}&per_page=5`, signal)).data);
+  const deployments = z.array(z.object({ id: z.number(), environment: z.string(), sha: z.string() })).parse((await request(token, `deployments?sha=${headSha}&per_page=5`, signal, undefined, undefined, repo)).data);
   for (const deployment of deployments) {
     if (deployment.sha !== headSha) continue;
-    const statuses = z.array(z.object({ state: z.string(), environment_url: z.string().nullable().optional(), target_url: z.string().nullable().optional() })).parse((await request(token, `deployments/${deployment.id}/statuses?per_page=5`, signal)).data);
+    const statuses = z.array(z.object({ state: z.string(), environment_url: z.string().nullable().optional(), target_url: z.string().nullable().optional() })).parse((await request(token, `deployments/${deployment.id}/statuses?per_page=5`, signal, undefined, undefined, repo)).data);
     const latest = statuses[0];
     const url = latest?.environment_url || undefined;
     if (latest && url && /^https:\/\//.test(url)) return { url, state: latest.state, environment: deployment.environment, checkedAt: new Date().toISOString() };
@@ -125,49 +128,50 @@ export async function readPreviewDeployment(token: string, headSha: string, sign
   }
   return undefined;
 }
-export async function readPull(token: string, number: number, signal?: AbortSignal) {
+export async function readPull(token: string, number: number, signal?: AbortSignal, repo: string = repository) {
   z.number().int().positive().parse(number);
-  const pr = pullSchema.parse((await request(token, `pulls/${number}`, signal)).data);
+  const pr = pullSchema.parse((await request(token, `pulls/${number}`, signal, undefined, undefined, repo)).data);
   if (pr.number !== number) throw new Error("GitHub returned a different pull request.");
+  if (pr.head.repo.full_name !== repo || pr.base.repo.full_name !== repo) throw new Error("Pull request belongs to a different repository.");
   return pr;
 }
-export async function verifyPullRequestHead(token: string, number: number, headSha: string, signal?: AbortSignal, baseSha?: string, targetBranch?:string) {
+export async function verifyPullRequestHead(token: string, number: number, headSha: string, signal?: AbortSignal, baseSha?: string, targetBranch?:string, repo: string = repository) {
   sha.parse(headSha);
   if (baseSha) sha.parse(baseSha);
-  const pr = await readPull(token, number, signal);
-  const currentTarget=baseSha?await readBranch(token,pr.base.ref,signal):null;
+  const pr = await readPull(token, number, signal, repo);
+  const currentTarget=baseSha?await readBranch(token,pr.base.ref,signal,repo):null;
   if (pr.state !== "open" || pr.head.sha !== headSha || (targetBranch&&pr.base.ref!==targetBranch) || (baseSha && currentTarget!==baseSha)) throw new Error("Pull request changed or closed; start a fresh review.");
   return true;
 }
-export async function updatePullRequestBody(token:string,number:number,headSha:string,body:string,signal?:AbortSignal){
+export async function updatePullRequestBody(token:string,number:number,headSha:string,body:string,signal?:AbortSignal,repo:string=repository){
  z.number().int().positive().parse(number);sha.parse(headSha);z.string().max(50000).parse(body);
- const pull=await readPull(token,number,signal);
+ const pull=await readPull(token,number,signal,repo);
  if(pull.state!=='open'||pull.head.sha!==headSha)throw new WorkError('stale_head','Pull request changed before its visual review section could be published.');
- await request(token,`pulls/${number}`,signal,{body},'PATCH');
- await verifyPullRequestHead(token,number,headSha,signal,undefined,pull.base.ref);
+ await request(token,`pulls/${number}`,signal,{body},'PATCH',repo);
+ await verifyPullRequestHead(token,number,headSha,signal,undefined,pull.base.ref,repo);
 }
-export async function loadPullRequest(token: string, number: number, signal?: AbortSignal) {
-  const pr = await readPull(token, number, signal);
+export async function loadPullRequest(token: string, number: number, signal?: AbortSignal, repo: string = repository) {
+  const pr = await readPull(token, number, signal, repo);
   if (pr.state !== "open") throw new Error("Review requires an open pull request.");
   const files: Array<{ filename: string; status: string; patch?: string; previous_filename?: string }> = [];
   for (let page = 1; page <= 5; page++) {
-    const response = await request(token, `pulls/${number}/files?per_page=100&page=${page}`, signal);
+    const response = await request(token, `pulls/${number}/files?per_page=100&page=${page}`, signal, undefined, undefined, repo);
     files.push(...z.array(z.object({ filename: z.string(), status: z.string(), patch: z.string().optional(), previous_filename: z.string().optional() })).parse(response.data));
     if (!response.next) break;
     if (page === 5) throw new Error("Pull request file inventory exceeds the bounded review limit.");
   }
-  const targetHead=await readBranch(token,pr.base.ref,signal);
-  const [snapshot, baseSnapshot] = await Promise.all([loadWorkSnapshot(token, pr.head.sha, signal), loadWorkSnapshot(token, targetHead, signal)]);
-  await verifyPullRequestHead(token, number, pr.head.sha, signal, targetHead,pr.base.ref);
+  const targetHead=await readBranch(token,pr.base.ref,signal,repo);
+  const [snapshot, baseSnapshot] = await Promise.all([loadWorkSnapshot(token, pr.head.sha, signal, repo), loadWorkSnapshot(token, targetHead, signal, repo)]);
+  await verifyPullRequestHead(token, number, pr.head.sha, signal, targetHead,pr.base.ref,repo);
   const availableHead = new Set(snapshot.entries.map(entry => entry.file));
   const availableBase = new Set(baseSnapshot.entries.map(entry => entry.file));
   const contextGaps = files.filter(file => (file.status !== "removed" && !availableHead.has(file.filename)) || (file.status !== "added" && !availableBase.has(file.previous_filename || file.filename))).map(file => `Full review content unavailable for ${file.filename}; excluded, symlink or unsupported source.`);
-  const ancestry=z.object({status:z.string()}).parse((await request(token,`compare/${targetHead}...${pr.head.sha}`,signal)).data);
+  const ancestry=z.object({status:z.string()}).parse((await request(token,`compare/${targetHead}...${pr.head.sha}`,signal,undefined,undefined,repo)).data);
   if(!["ahead","identical"].includes(ancestry.status))contextGaps.push("Candidate does not incorporate the captured current target head; integration against that target is unverified. Refresh the owned branch and request a fresh review.");
-  return { contextGaps, number: pr.number, url: pr.html_url, title: pr.title, body: pr.body || "", baseSha: targetHead, targetBranch:pr.base.ref, headSha: pr.head.sha, headRef: pr.head.ref, files, snapshot, baseSnapshot };
+  return { repository: repo, contextGaps, number: pr.number, url: pr.html_url, title: pr.title, body: pr.body || "", baseSha: targetHead, targetBranch:pr.base.ref, headSha: pr.head.sha, headRef: pr.head.ref, files, snapshot, baseSnapshot };
 }
-export async function assertRefreshCoverage(token:string,base:string,ours:string,target:string,signal?:AbortSignal){
- const trees=await Promise.all([base,ours,target].map(revision=>commitTree(token,revision,signal)));
+export async function assertRefreshCoverage(token:string,base:string,ours:string,target:string,signal?:AbortSignal,repo:string=repository){
+ const trees=await Promise.all([base,ours,target].map(revision=>commitTree(token,revision,signal,repo)));
  const [b,o,t]=trees.map(tree=>new Map(tree.tree.filter(e=>e.type!=="tree").map(e=>[e.path,e])));
  for(const path of new Set([...b!.keys(),...o!.keys()])){
   const before=b!.get(path),own=o!.get(path),theirs=t!.get(path);
@@ -176,27 +180,49 @@ export async function assertRefreshCoverage(token:string,base:string,ours:string
   if(!includeSource(path)||own&&!["100644","100755"].includes(own.mode)||(before&&own&&before.mode!==own.mode)||(own?.mode==="100755"&&theirs?.mode!==own.mode))throw new WorkError("unsupported_conflict",`Owned change in excluded or mode-changing ${path} cannot be represented safely; workspace preserved.`);
  }
 }
-export async function isDescendant(token:string,ancestor:string,head:string,signal?:AbortSignal){
- const comparison=z.object({status:z.string()}).parse((await request(token,`compare/${sha.parse(ancestor)}...${sha.parse(head)}`,signal)).data);
+export async function isDescendant(token:string,ancestor:string,head:string,signal?:AbortSignal,repo:string=repository){
+ const comparison=z.object({status:z.string()}).parse((await request(token,`compare/${sha.parse(ancestor)}...${sha.parse(head)}`,signal,undefined,undefined,repo)).data);
  return ["ahead","identical"].includes(comparison.status);
 }
-export async function readBranch(token:string,branch:string,signal?:AbortSignal){
- safeBranch(branch);return z.object({object:z.object({sha})}).parse((await request(token,`git/ref/heads/${branch}`,signal)).data).object.sha;
+export async function readBranch(token:string,branch:string,signal?:AbortSignal,repo:string=repository){
+ safeBranch(branch);return z.object({object:z.object({sha})}).parse((await request(token,`git/ref/heads/${branch}`,signal,undefined,undefined,repo)).data).object.sha;
 }
-export async function verifyOwnerCommit(token:string,publication:{branch:string;headSha:string;number:number},ownerSessionId:string,signal?:AbortSignal){
+export async function verifyOwnerCommit(token:string,publication:{branch:string;headSha:string;number:number},ownerSessionId:string,signal?:AbortSignal,repo:string=repository){
  if(publication.branch!==workBranch(ownerSessionId))throw new WorkError("ownership_unverified","Branch does not belong to this logical owner.");
- const commit=z.object({message:z.string()}).parse((await request(token,`git/commits/${sha.parse(publication.headSha)}`,signal)).data);
+ const commit=z.object({message:z.string()}).parse((await request(token,`git/commits/${sha.parse(publication.headSha)}`,signal,undefined,undefined,repo)).data);
  const marker=`Factory-Session: ${createHash("sha256").update(ownerSessionId).digest("hex")}`;
  if(!commit.message.includes(marker))throw new WorkError("ownership_unverified","Original publication lacks verified factory provenance.");
 }
-export async function targetFor(token:string,parentPrNumber?:number,signal?:AbortSignal){
- if(!parentPrNumber)return {targetBranch:"main",targetHeadSha:await readBranch(token,"main",signal)};
- const parent=await readPull(token,parentPrNumber,signal);if(parent.state!=="open")throw new WorkError("invalid_request","Contribution target must be an open PR.");
- return{targetBranch:safeBranch(parent.head.ref),targetHeadSha:await readBranch(token,parent.head.ref,signal),parentPrNumber};
+export async function targetFor(token:string,parentPrNumber?:number,signal?:AbortSignal,repo:string=repository){
+ if(!parentPrNumber)return {targetBranch:"main",targetHeadSha:await readBranch(token,"main",signal,repo)};
+ const parent=await readPull(token,parentPrNumber,signal,repo);if(parent.state!=="open")throw new WorkError("invalid_request","Contribution target must be an open PR.");
+ return{targetBranch:safeBranch(parent.head.ref),targetHeadSha:await readBranch(token,parent.head.ref,signal,repo),parentPrNumber};
 }
+// One target repository per prototype, one owner per repository: the migrator publishes on the
+// fixed `dev` branch so its pull request is the single preview a person reviews and merges.
+// Ownership is still proven by the Factory-Session marker in the commit, not by the branch name.
 export function workBranch(sessionId: string) {
   z.string().min(1).max(200).parse(sessionId);
-  return `factory/work-${createHash("sha256").update(sessionId).digest("hex").slice(0, 24)}`;
+  return factoryBranch;
+}
+/** The open pull request from `head` into `base`, if any (owner-qualified head). */
+export async function findOpenPull(token:string,head:string,base:string,signal?:AbortSignal,repo:string=repository){
+ const query=new URLSearchParams({state:"open",head:`${repo.split("/")[0]}:${safeBranch(head)}`,base:safeBranch(base),per_page:"10"});
+ const pulls=z.array(pullSchema).parse((await request(token,`pulls?${query}`,signal,undefined,undefined,repo)).data);
+ return pulls[0];
+}
+/** Squash-merge an open pull request whose head is still `headSha`. Called by the host after a person approves. */
+export async function mergePull(token:string,number:number,headSha:string,title:string,signal?:AbortSignal,repo:string=repository){
+ sha.parse(headSha);z.string().trim().min(1).max(200).parse(title);
+ const pr=await readPull(token,number,signal,repo);
+ if(pr.state!=="open"||pr.head.sha!==headSha)throw new WorkError("stale_head","Pull request changed or closed since the approved head; nothing was merged.");
+ const merged=z.object({sha,merged:z.boolean()}).parse((await request(token,`pulls/${number}/merge`,signal,{sha:headSha,merge_method:"squash",commit_title:title.slice(0,200)},"PUT",repo)).data);
+ if(!merged.merged)throw new WorkError("merge_failed","GitHub did not confirm the merge.");
+ return {commitSha:merged.sha,targetBranch:pr.base.ref,branch:pr.head.ref};
+}
+/** Delete a branch ref after its pull request merged so the next delivery in this repository can own it again. */
+export async function deleteBranch(token:string,branch:string,signal?:AbortSignal,repo:string=repository){
+ await request(token,`git/refs/heads/${safeBranch(branch)}`,signal,undefined,"DELETE",repo);
 }
 export async function publishWork(token: string, input: PublishWorkInput, signal?: AbortSignal) {
   sha.parse(input.baseSha);
@@ -214,8 +240,9 @@ export async function publishWork(token: string, input: PublishWorkInput, signal
       if (size > MAX_WORK_FILE_BYTES || bytes > MAX_WORK_BYTES) throw new Error("Publication exceeds the file or total byte limit.");
     }
   }
+  const repo = input.repository || repository;
   const branch = workBranch(input.sessionId);
-  const source = await commitTree(token, input.baseSha, signal);
+  const source = await commitTree(token, input.baseSha, signal, repo);
   const byPath = new Map(source.tree.map(item => [item.path, item]));
   const tree = input.changes.map(change => {
     const previous = byPath.get(change.path);
@@ -231,51 +258,51 @@ export async function publishWork(token: string, input: PublishWorkInput, signal
   const targetBranch=safeBranch(input.targetBranch||"main");
   const targetHeadSha=sha.parse(input.targetHeadSha||input.baseSha);
 
-  const treeSha = sha.parse(object.parse((await request(token, "git/trees", signal, { base_tree: source.treeSha, tree })).data).sha);
+  const treeSha = sha.parse(object.parse((await request(token, "git/trees", signal, { base_tree: source.treeSha, tree }, undefined, repo)).data).sha);
   if(treeSha===source.treeSha&&!input.mergeTarget)throw new WorkError("no_changes","No changes to publish.");
   const operation=input.operationId||createHash("sha256").update(treeSha).digest("hex");
   const marker=`Factory-Session: ${createHash("sha256").update(input.sessionId).digest("hex")}\nFactory-Base: ${input.baseSha}`;
   const ownerMarker=`Factory-Owner: ${input.sessionId}\nFactory-Operation: ${operation}\nFactory-Target: ${targetBranch}\nFactory-Target-Head: ${targetHeadSha}`;
   const parents=input.previous?[input.previous.headSha,...(input.mergeTarget&&targetHeadSha!==input.previous.headSha?[targetHeadSha]:[])]:[input.baseSha];
-  async function currentHead(){try{return await readBranch(token,branch,signal);}catch(e){if(e instanceof GitHubError&&e.status===404)return null;throw e;}}
+  async function currentHead(){try{return await readBranch(token,branch,signal,repo);}catch(e){if(e instanceof GitHubError&&e.status===404)return null;throw e;}}
   async function samePublication(head:string){
-   const c=z.object({tree:z.object({sha}),parents:z.array(z.object({sha})),message:z.string()}).parse((await request(token,`git/commits/${head}`,signal)).data);
+   const c=z.object({tree:z.object({sha}),parents:z.array(z.object({sha})),message:z.string()}).parse((await request(token,`git/commits/${head}`,signal,undefined,undefined,repo)).data);
    return c.tree.sha===treeSha&&JSON.stringify(c.parents.map(p=>p.sha))===JSON.stringify(parents)&&c.message.includes(marker)&&c.message.includes(ownerMarker);
   }
   let headSha=await currentHead();
   if(headSha&&await samePublication(headSha)) {
    if(input.previous){
-    const existing=await readPull(token,input.previous.number,signal);
+    const existing=await readPull(token,input.previous.number,signal,repo);
     if(existing.state!=="open"||existing.head.ref!==branch||existing.base.ref!==targetBranch||existing.head.sha!==headSha)throw new WorkError("stale_head","Original owner PR changed after publication; a retry cannot create a replacement PR.");
    }
   }
   else {
-   if(await readBranch(token,targetBranch,signal)!==targetHeadSha)throw new WorkError("target_advanced","Target advanced; call refresh_target to preserve and merge your work before rechecking.");
-   if(input.parentPrNumber){const parent=await readPull(token,input.parentPrNumber,signal);if(parent.state!=="open"||parent.head.ref!==targetBranch)throw new WorkError("target_closed","Parent PR closed or changed; preserve source and request an explicit target decision.");}
+   if(await readBranch(token,targetBranch,signal,repo)!==targetHeadSha)throw new WorkError("target_advanced","Target advanced; call refresh_target to preserve and merge your work before rechecking.");
+   if(input.parentPrNumber){const parent=await readPull(token,input.parentPrNumber,signal,repo);if(parent.state!=="open"||parent.head.ref!==targetBranch)throw new WorkError("target_closed","Parent PR closed or changed; preserve source and request an explicit target decision.");}
    if(input.previous){
-    const pr=await readPull(token,input.previous.number,signal);
+    const pr=await readPull(token,input.previous.number,signal,repo);
     if(pr.state!=="open"||pr.head.ref!==branch||pr.base.ref!==targetBranch||headSha!==input.previous.headSha)throw new WorkError("stale_head","Owned branch changed; preserve this workspace and prepare a fresh owner revision.");
    }else if(headSha)throw new WorkError("ownership_unverified","This branch already exists; a new execution cannot adopt it.");
-   const created=object.parse((await request(token,"git/commits",signal,{tree:treeSha,parents,message:`factory: ${input.title}\n\n${ownerMarker}\n${marker}`})).data);
+   const created=object.parse((await request(token,"git/commits",signal,{tree:treeSha,parents,message:`factory: ${input.title}\n\n${ownerMarker}\n${marker}`},undefined,repo)).data);
    const proposed=sha.parse(created.sha);
-   if(await readBranch(token,targetBranch,signal)!==targetHeadSha)throw new WorkError("target_advanced","Target advanced; refresh_target before publication.");
+   if(await readBranch(token,targetBranch,signal,repo)!==targetHeadSha)throw new WorkError("target_advanced","Target advanced; refresh_target before publication.");
    if(input.previous){
     if(await currentHead()!==input.previous.headSha)throw new WorkError("stale_head","Owned branch changed before publication.");
-    await request(token,`git/refs/heads/${branch}`,signal,{sha:proposed,force:false},"PATCH");
+    await request(token,`git/refs/heads/${branch}`,signal,{sha:proposed,force:false},"PATCH",repo);
    }else{
-    try{await request(token,"git/refs",signal,{ref:`refs/heads/${branch}`,sha:proposed});}
+    try{await request(token,"git/refs",signal,{ref:`refs/heads/${branch}`,sha:proposed},undefined,repo);}
     catch(e){if(!(e instanceof GitHubError&&e.status===422))throw e;const actual=await currentHead();if(!actual||!await samePublication(actual))throw new WorkError("ownership_unverified","Concurrent branch claim rejected.");}
    }
    headSha=await currentHead();if(!headSha||!await samePublication(headSha))throw new WorkError("stale_head","Published head differs from this operation.");
   }
-  const query=new URLSearchParams({state:"all",head:`${repository.split("/")[0]}:${branch}`,base:targetBranch,per_page:"100"});
+  const query=new URLSearchParams({state:"all",head:`${repo.split("/")[0]}:${branch}`,base:targetBranch,per_page:"100"});
   // GitHub's pull list can lag a just-moved branch ref by a few seconds. The ref update above is
   // ours and verified, so give the PR head a bounded moment to catch up before calling it stale
   // (observed 15 Sep: two verified revisions were reported as "Owner PR changed" while the branch
   // already carried the new head, and the loop lost the publication).
   let pr: z.infer<typeof pullSchema>|undefined;
   for(let attempt=1;;attempt+=1){
-   const response=await request(token,`pulls?${query}`,signal);if(response.next)throw new Error("Unexpected paginated owner PRs.");
+   const response=await request(token,`pulls?${query}`,signal,undefined,undefined,repo);if(response.next)throw new Error("Unexpected paginated owner PRs.");
    const candidates=z.array(pullSchema).parse(response.data);if(candidates.length>1)throw new Error("Ambiguous owner PRs.");
    pr=candidates[0];
    const lagging=pr&&pr.state==="open"&&pr.head.sha!==headSha&&input.previous&&pr.number===input.previous.number&&pr.head.sha===input.previous.headSha;
@@ -284,15 +311,16 @@ export async function publishWork(token: string, input: PublishWorkInput, signal
   }
   if(pr&&(pr.state!=="open"||pr.head.sha!==headSha||input.previous&&pr.number!==input.previous.number))throw new WorkError("stale_head","Owner PR changed or closed.");
   if(!pr){
-   try{pr=pullSchema.parse((await request(token,"pulls",signal,{head:branch,base:targetBranch,title:input.title,body:`${input.body}\n\n<!-- ${ownerMarker}\n${marker} -->`,draft:true})).data);}
+   // Not a draft: the PR is the review surface, its preview deployment is what a person opens.
+   try{pr=pullSchema.parse((await request(token,"pulls",signal,{head:branch,base:targetBranch,title:input.title,body:`${input.body}\n\n<!-- ${ownerMarker}\n${marker} -->`,draft:false},undefined,repo)).data);}
    catch(error){
     if(!(error instanceof GitHubError&&error.status===422))throw error;
-    const retried=z.array(pullSchema).parse((await request(token,`pulls?${query}`,signal)).data);
+    const retried=z.array(pullSchema).parse((await request(token,`pulls?${query}`,signal,undefined,undefined,repo)).data);
     if(retried.length!==1||retried[0]!.state!=="open"||retried[0]!.head.sha!==headSha)throw error;pr=retried[0]!;
    }
   }
-  else if(input.previous)await request(token,`pulls/${pr.number}`,signal,{body:`${input.body}\n\n<!-- ${ownerMarker}\n${marker} -->`},"PATCH");
-  await verifyPullRequestHead(token,pr.number,headSha!,signal,undefined,targetBranch);
-  const targetAdvanced=await readBranch(token,targetBranch,signal)!==targetHeadSha;
-  return {branch,number:pr.number,url:pr.html_url,headSha:headSha!,baseSha:input.baseSha,ownerSessionId:input.sessionId,targetBranch,targetHeadSha,...(targetAdvanced?{targetAdvanced:true}:{}),...(input.parentPrNumber?{parentPrNumber:input.parentPrNumber}:{})};
+  else if(input.previous)await request(token,`pulls/${pr.number}`,signal,{body:`${input.body}\n\n<!-- ${ownerMarker}\n${marker} -->`},"PATCH",repo);
+  await verifyPullRequestHead(token,pr.number,headSha!,signal,undefined,targetBranch,repo);
+  const targetAdvanced=await readBranch(token,targetBranch,signal,repo)!==targetHeadSha;
+  return {repository:repo,branch,number:pr.number,url:pr.html_url,headSha:headSha!,baseSha:input.baseSha,ownerSessionId:input.sessionId,targetBranch,targetHeadSha,...(targetAdvanced?{targetAdvanced:true}:{}),...(input.parentPrNumber?{parentPrNumber:input.parentPrNumber}:{})};
 }

@@ -13,7 +13,7 @@ test("station privileges come only from immutable initiator auth, not current de
  const spoof={session:{auth:{initiator:{attributes:{}},current:{attributes:{factoryStation:"worker"}}}}};
  assert.equal(stationOf(spoof),null);assert.throws(()=>requireStation(spoof,"worker"));
  const review={session:{auth:{initiator:{attributes:{factoryStation:"reviewer",factoryRequest:JSON.stringify({operationId:op,prNumber:3})}}}}};
- assert.throws(()=>requireStation(review,"worker"));assert.deepEqual(stationRequest(review),{operationId:op,prNumber:3});
+ assert.throws(()=>requireStation(review,"worker"));assert.deepEqual(stationRequest(review),{operationId:op,prNumber:3,repository:"software-factory-workshop/adeo-todo-nuxt"});
  assert.throws(()=>workerRequest.parse({operationId:op,title:"Task",brief:"A bounded requested task",factoryStation:"worker"}));
  assert.throws(()=>workerRequest.parse({operationId:op,title:"Task",brief:"x".repeat(MIN_WORK_REQUEST_LENGTH - 1)}));
 });

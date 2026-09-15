@@ -24,7 +24,7 @@ export default defineTool({description:"Record an independent structured review 
   const candidateUnchanged=!(await collectChanges(await ctx.getSandbox(),state.baseline,true)).length;
   if(input.verdict==="approve"&&!candidateUnchanged)throw new Error("Candidate changed after verification; approval refused.");
   const token=await getToken(githubConnectorName,{subject:{type:"app"}});
-  await verifyPullRequestHead(token,state.pull.number,state.pull.headSha,ctx.abortSignal,state.pull.baseSha,state.pull.targetBranch);
+  await verifyPullRequestHead(token,state.pull.number,state.pull.headSha,ctx.abortSignal,state.pull.baseSha,state.pull.targetBranch,state.repository);
   const principal=factoryPrincipalFromStation(ctx,gate);
   const evidenceId=`review:${ctx.session.id}:${state.pull.headSha}`;
   const authorized=await runGuardedFactoryOperation({
