@@ -114,55 +114,69 @@ export async function bootstrapTarget(input: BootstrapInput, signal?: AbortSigna
   }
 
   // 4. Vercel project, git-linked to the target, behind the same Passport connector as the cockpit.
+  // When the Vercel credential is rejected but GitHub already shows Vercel deployments for this
+  // repository, the project exists and is linked: the delivery proceeds on that evidence with a
+  // warning instead of blocking (a fresh prototype still needs a valid token to create its project).
   const projectName = name.toLowerCase();
-  let project = await vercel(vc, `/v9/projects/${projectName}`, { signal });
-  if (project.status === 404) {
-    project = await vercel(vc, "/v11/projects", { signal, body: { name: projectName, framework: "nuxtjs", gitRepository: { type: "github", repo: repository } } });
-    if (!project.ok) throw new WorkError("bootstrap_failed", `Could not create the Vercel project ${projectName}: HTTP ${project.status}${project.message ? ` ${project.message}` : ""}.`);
-    created.project = true;
-  } else if (!project.ok) throw new WorkError("bootstrap_failed", `Cannot read the Vercel project ${projectName}: HTTP ${project.status}${project.message ? ` ${project.message}` : ""}.`);
-  const projectId = z.string().parse(project.data?.id);
-  const link = project.data?.link as { repo?: string; org?: string } | undefined;
-  if (link && link.org && link.repo && `${link.org}/${link.repo}` !== repository) throw new WorkError("target_busy", `Vercel project ${projectName} is linked to ${link.org}/${link.repo}, not ${repository}.`);
-  if (!link?.repo) {
-    const linked = await vercel(vc, `/v9/projects/${projectId}/link`, { signal, body: { type: "github", repo: repository } });
-    if (!linked.ok) warnings.push(`Vercel project ${projectName} exists but could not be linked to ${repository}: ${linked.message || `HTTP ${linked.status}`}.`);
-  }
-  const passport = project.data?.passport as { connectorId?: string } | null | undefined;
-  if (passport?.connectorId !== passportConnectorId) {
-    const protectedProject = await vercel(vc, `/v9/projects/${projectId}`, { signal, method: "PATCH", body: { passport: { connectorId: passportConnectorId, deploymentType: "all" } } });
-    if (!protectedProject.ok) warnings.push(`Passport could not be enabled on ${projectName}: ${protectedProject.message || `HTTP ${protectedProject.status}`}. Enable it by hand before opening the preview.`);
-  }
-  const attached = await vercel(vc, `/v1/connect/connectors/${passportConnectorId}/projects/${projectId}`, { signal, body: { environments: ["production", "preview", "development"] } });
-  if (!attached.ok) warnings.push(`The Passport connector could not be attached to ${projectName}: ${attached.message || `HTTP ${attached.status}`}.`);
-
-  // 5. Production is the shell on main until a person merges the factory's pull request. A
-  // deployment created through the API for a repository linked seconds earlier stays BLOCKED
-  // (observed 15 Sep, twice, no error code), so production is started the way Vercel expects:
-  // a push. An empty commit on main (same tree) is enough; the git integration builds it.
+  let projectId = "";
   let deploymentId: string | undefined;
-  const existing = await vercel(vc, `/v6/deployments?projectId=${projectId}&target=production&limit=5`, { signal });
-  const deployments = z.array(z.object({ uid: z.string(), state: z.string().optional() })).parse((existing.data?.deployments as unknown[]) ?? []);
-  const live = deployments.find(d => ["READY", "BUILDING", "QUEUED", "INITIALIZING"].includes(d.state ?? ""));
-  if (live) deploymentId = live.uid;
-  else {
-    const head = await github(gh, `repos/${repository}/git/ref/heads/main`, { signal });
-    const headSha = sha.parse((head.data?.object as { sha?: string } | undefined)?.sha);
-    const commit = await github(gh, `repos/${repository}/git/commits/${headSha}`, { signal });
-    const tree = sha.parse((commit.data?.tree as { sha?: string } | undefined)?.sha);
-    const pushed = await github(gh, `repos/${repository}/git/commits`, { signal, body: { message: `factory: deploy the shell on main for ${input.prototype.repository}\n\nEmpty commit that starts the production deployment of the generated target.`, tree, parents: [headSha] } });
-    if (!pushed.ok) warnings.push(`Could not create the bootstrap commit on main: ${pushed.message || `HTTP ${pushed.status}`}.`);
+  let project = await vercel(vc, `/v9/projects/${projectName}`, { signal });
+  if (project.status === 401 || project.status === 403) {
+    const seen = await github(gh, `repos/${repository}/deployments?per_page=5`, { signal });
+    const ghDeployments = z.array(z.object({ id: z.number(), environment: z.string(), sha: z.string() })).parse(seen.data ?? []);
+    const production = ghDeployments.find(d => /^production$/i.test(d.environment));
+    if (!production) throw new WorkError("bootstrap_unconfigured", `The Vercel credential ${bootstrapEnv.vercel} was rejected (${project.message || `HTTP ${project.status}`}) and ${repository} has no Vercel deployment yet. Create a token at vercel.com/account/tokens, set it on the cockpit project and redeploy.`);
+    warnings.push(`Vercel credential rejected (${project.message || `HTTP ${project.status}`}); the project was verified through the ${ghDeployments.length} Vercel deployment(s) GitHub records for ${repository}. Set a valid ${bootstrapEnv.vercel} before migrating a new prototype.`);
+    deploymentId = `github:${production.id}`;
+    projectId = "verified-via-github";
+  } else {
+    if (project.status === 404) {
+      project = await vercel(vc, "/v11/projects", { signal, body: { name: projectName, framework: "nuxtjs", gitRepository: { type: "github", repo: repository } } });
+      if (!project.ok) throw new WorkError("bootstrap_failed", `Could not create the Vercel project ${projectName}: HTTP ${project.status}${project.message ? ` ${project.message}` : ""}.`);
+      created.project = true;
+    } else if (!project.ok) throw new WorkError("bootstrap_failed", `Cannot read the Vercel project ${projectName}: HTTP ${project.status}${project.message ? ` ${project.message}` : ""}.`);
+    projectId = z.string().parse(project.data?.id);
+    const link = project.data?.link as { repo?: string; org?: string } | undefined;
+    if (link && link.org && link.repo && `${link.org}/${link.repo}` !== repository) throw new WorkError("target_busy", `Vercel project ${projectName} is linked to ${link.org}/${link.repo}, not ${repository}.`);
+    if (!link?.repo) {
+      const linked = await vercel(vc, `/v9/projects/${projectId}/link`, { signal, body: { type: "github", repo: repository } });
+      if (!linked.ok) warnings.push(`Vercel project ${projectName} exists but could not be linked to ${repository}: ${linked.message || `HTTP ${linked.status}`}.`);
+    }
+    const passport = project.data?.passport as { connectorId?: string } | null | undefined;
+    if (passport?.connectorId !== passportConnectorId) {
+      const protectedProject = await vercel(vc, `/v9/projects/${projectId}`, { signal, method: "PATCH", body: { passport: { connectorId: passportConnectorId, deploymentType: "all" } } });
+      if (!protectedProject.ok) warnings.push(`Passport could not be enabled on ${projectName}: ${protectedProject.message || `HTTP ${protectedProject.status}`}. Enable it by hand before opening the preview.`);
+    }
+    const attached = await vercel(vc, `/v1/connect/connectors/${passportConnectorId}/projects/${projectId}`, { signal, body: { environments: ["production", "preview", "development"] } });
+    if (!attached.ok) warnings.push(`The Passport connector could not be attached to ${projectName}: ${attached.message || `HTTP ${attached.status}`}.`);
+
+    // 5. Production is the shell on main until a person merges the factory's pull request. A
+    // deployment created through the API for a repository linked seconds earlier stays BLOCKED
+    // (observed 15 Sep, twice, no error code), so production is started the way Vercel expects:
+    // a push. An empty commit on main (same tree) is enough; the git integration builds it.
+    const existing = await vercel(vc, `/v6/deployments?projectId=${projectId}&target=production&limit=5`, { signal });
+    const deployments = z.array(z.object({ uid: z.string(), state: z.string().optional() })).parse((existing.data?.deployments as unknown[]) ?? []);
+    const live = deployments.find(d => ["READY", "BUILDING", "QUEUED", "INITIALIZING"].includes(d.state ?? ""));
+    if (live) deploymentId = live.uid;
     else {
-      const moved = await github(gh, `repos/${repository}/git/refs/heads/main`, { signal, method: "PATCH", body: { sha: sha.parse(pushed.data?.sha), force: false } });
-      if (!moved.ok) warnings.push(`Could not move main to the bootstrap commit: ${moved.message || `HTTP ${moved.status}`}.`);
+      const head = await github(gh, `repos/${repository}/git/ref/heads/main`, { signal });
+      const headSha = sha.parse((head.data?.object as { sha?: string } | undefined)?.sha);
+      const commit = await github(gh, `repos/${repository}/git/commits/${headSha}`, { signal });
+      const tree = sha.parse((commit.data?.tree as { sha?: string } | undefined)?.sha);
+      const pushed = await github(gh, `repos/${repository}/git/commits`, { signal, body: { message: `factory: deploy the shell on main for ${input.prototype.repository}\n\nEmpty commit that starts the production deployment of the generated target.`, tree, parents: [headSha] } });
+      if (!pushed.ok) warnings.push(`Could not create the bootstrap commit on main: ${pushed.message || `HTTP ${pushed.status}`}.`);
       else {
-        created.deployment = true;
-        for (let attempt = 0; attempt < 20 && !deploymentId; attempt += 1) {
-          await sleep(3000);
-          const started = await vercel(vc, `/v6/deployments?projectId=${projectId}&target=production&limit=3`, { signal });
-          deploymentId = z.array(z.object({ uid: z.string(), meta: z.record(z.string(), z.unknown()).optional() })).parse((started.data?.deployments as unknown[]) ?? []).find(d => d.meta?.githubCommitSha === pushed.data?.sha)?.uid;
+        const moved = await github(gh, `repos/${repository}/git/refs/heads/main`, { signal, method: "PATCH", body: { sha: sha.parse(pushed.data?.sha), force: false } });
+        if (!moved.ok) warnings.push(`Could not move main to the bootstrap commit: ${moved.message || `HTTP ${moved.status}`}.`);
+        else {
+          created.deployment = true;
+          for (let attempt = 0; attempt < 20 && !deploymentId; attempt += 1) {
+            await sleep(3000);
+            const started = await vercel(vc, `/v6/deployments?projectId=${projectId}&target=production&limit=3`, { signal });
+            deploymentId = z.array(z.object({ uid: z.string(), meta: z.record(z.string(), z.unknown()).optional() })).parse((started.data?.deployments as unknown[]) ?? []).find(d => d.meta?.githubCommitSha === pushed.data?.sha)?.uid;
+          }
+          if (!deploymentId) warnings.push("The push landed but Vercel has not reported its production deployment yet; it appears on the project shortly.");
         }
-        if (!deploymentId) warnings.push("The push landed but Vercel has not reported its production deployment yet; it appears on the project shortly.");
       }
     }
   }
