@@ -13,6 +13,7 @@ Everything a facilitator needs on the day, in the order it is needed. Dates and 
 | Connect + MCP CRUD demo | https://jira-connect-demo.vercel.app | Vercel Passport |
 | Pocket ID (identity provider) | https://pocket-id-software-factory.vercel.app | passkey; instructor console at `/workshop` |
 | Target repo | https://github.com/software-factory-workshop/adeo-todo-nuxt | GitHub |
+| Target app (Vercel project `adeo-todo-nuxt`) | production = bare shell on `main`; every factory PR branch gets a preview deployment (open it from the PR's Vercel check) | Vercel Passport |
 
 ## Models (AI Gateway ids, chosen 15 Sep for speed)
 
@@ -44,6 +45,10 @@ curl -s -X POST -H "X-API-KEY: $POCKET_ID_KEY" -H 'content-type: application/jso
 ```
 
 Codes minted with `expiresAt` are 6 characters and cannot be typed on the code page; always use `ttl`. User ids: `GET /api/users?search=persona`.
+
+## What a migrated preview shows
+
+Open the Vercel preview of a factory PR (for example PR #11): the todo page renders behind Passport with the visitor's verified identity, `/api/todos` answers with `persistence: fixture` because no DSQL cluster credentials are set on the project (the DSQL module is selected only when `DSQL_CLUSTER_ENDPOINT` exists), and `/api/jira` answers `source: fixture` because the migrated app asks Connect for an app-subject token while the Jira MCP connector is user-authorised. Both are labelled fixtures in the UI, which is the behaviour the brief asked for when hosted integrations are absent, and both are worth pointing at in the room: the gates verified the code paths in the sandbox, not the hosted integrations.
 
 ## M0 in the room
 
