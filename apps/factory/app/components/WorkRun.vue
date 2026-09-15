@@ -99,7 +99,10 @@ async function followChild() {
     let started = false;
     let sinceFlush = 0;
     let lastFlush = performance.now();
+    let trailing: ReturnType<typeof setTimeout> | undefined;
     const flush = () => {
+      clearTimeout(trailing);
+      trailing = undefined;
       tailData.value = boundStationProjection(projection, props.station, props.operationId);
       tailTurn.value = turnState;
       deliveryStarted.value = started;
@@ -119,13 +122,15 @@ async function followChild() {
         discoveredChild.value = event.data.childSessionId;
       }
       sinceFlush++;
+      // A followed stream stays open after the last event, so the tail must flush on a timer too.
+      trailing ??= setTimeout(flush, 400);
       if (sinceFlush >= 200 || performance.now() - lastFlush > 400) {
         flush();
         await new Promise<void>(resolve => setTimeout(resolve, 0));
         if (controller.signal.aborted) break;
       }
     }
-    if (!controller.signal.aborted) flush();
+    if (!controller.signal.aborted) flush(); else clearTimeout(trailing);
     if (!controller.signal.aborted && !result.value && !stopped.value) discoveryError.value = true;
   } catch { if (!controller.signal.aborted && !result.value && !stopped.value) discoveryError.value = true; }
   finally { controller.abort(); discovery = undefined; }
@@ -141,7 +146,8 @@ const result = computed(() => {
   return undefined;
 });
 const digestTurn = computed<StationTurn>(() => ({ running: "running", completed: "completed", failed: "failed", cancelled: "cancelled", waiting_input: "completed" } as Record<string, StationTurn>)[digest.value?.status ?? ""] ?? "unknown");
-const turn = computed(() => { const live = tailData.value ? tailTurn.value : events.value.reduce(advanceStationTurn, "unknown"); return live === "unknown" ? digestTurn.value : live; });
+// The digest reads the whole session server-side, so a terminal digest wins over a live replay still in flight.
+const turn = computed(() => { const live = tailData.value ? tailTurn.value : events.value.reduce(advanceStationTurn, "unknown"); if (digestTurn.value !== "unknown" && digestTurn.value !== "running") return digestTurn.value; return live === "unknown" ? digestTurn.value : live; });
 const active = computed(() => turn.value === "running" || (!tailData.value && ["submitted", "streaming", "resuming"].includes(status.value)));
 const stopped = computed(() => turn.value === "cancelled");
 const ended = computed(() => ["completed", "failed"].includes(turn.value));
@@ -195,6 +201,7 @@ async function answer(requestId: string, optionId: string) {
   answering.value = requestId;
   try {
     await respond([{ requestId, optionId }]);
+    void loadDigest();
   } catch { answering.value = undefined; actionError.value = "Could not submit the decision. Reconnect before trying again."; }
 }
 async function answerFreeform(requestId: string) {
@@ -204,6 +211,7 @@ async function answerFreeform(requestId: string) {
   try {
     await respond([{ requestId, text }]);
     freeformAnswers.value[requestId] = "";
+    void loadDigest();
   } catch { answering.value = undefined; actionError.value = "Could not submit the answer. Reconnect before trying again."; }
 }
 watch(pendingRequests, requests => { if (!requests.some(request => request.requestId === answering.value)) answering.value = undefined; });
@@ -219,6 +227,7 @@ async function stop() {
   try {
     await $fetch(`/eve/v1/session/${props.sessionId}/cancel`, { method: "POST", body: { tasks: true } });
     cancellationRequested.value = true;
+    void loadDigest();
   } catch { actionError.value = "Cancellation could not be confirmed. Reconnect to check the run."; }
   finally { stopping.value = false; }
 }
