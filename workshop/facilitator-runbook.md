@@ -47,7 +47,7 @@ Codes minted with `expiresAt` are 6 characters and cannot be typed on the code p
 
 ## M0 in the room
 
-Cockpit → Projects → the prefilled brief → Admit as work order → Start migration. About 5 minutes to a draft PR, then 2 to 3 minutes per gate. The reference artefacts if a run misbehaves: PR #6 (Opus 4.8 Fast) and PR #8 (Sol Fast) on the target repo, both drafts on `main`.
+Cockpit → Projects → the prefilled brief → Admit as work order → Start migration. About 5 minutes to a draft PR, then 2 to 3 minutes per gate. The reference artefacts if a run misbehaves: PR #11 (full cockpit loop on the workshop models, both gates approve, delivery `284abcac…` in the cockpit's Recent list), plus PR #6 and #8 from the eval-only runs; all drafts on `main`.
 
 Run the eval version in a terminal while people watch:
 
