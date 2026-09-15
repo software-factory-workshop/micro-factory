@@ -34,7 +34,7 @@ Measured the night before: full M0 migration about 5 minutes (was 32 with Muse);
 
 ## Personas (for the role demo)
 
-Users `persona-admin`, `persona-member`, `persona-viewer` exist in Pocket ID with emails `persona-<role>@workshop.invalid`. To sign in as one on a clean browser profile, mint a one-time code and open the code URL from the Passport interaction page:
+Users `persona-admin`, `persona-member`, `persona-viewer` exist in Pocket ID with emails `persona-<role>@workshop.invalid` and a `role` custom claim (`admin`/`member`/`viewer`). The Passport connector `pocket-id-passport` forwards the `cost_center` and `role` id-token claims (same mechanism as `cost_center`); the Jira clone honours an explicit `role` claim first, then the email map, then the default `member`. Do not forward `groups`: attendees only carry the `workshop` group, which the clone treats as unrecognised and rejects. To sign in as one on a clean browser profile, mint a one-time code and open the code URL from the Passport interaction page:
 
 ```sh
 # POCKET_ID_KEY = Pocket ID API key
