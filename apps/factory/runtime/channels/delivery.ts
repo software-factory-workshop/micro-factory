@@ -176,7 +176,15 @@ export default defineChannel({routes:[
   }
   return Response.json(await existing(state.id),{status:202});
  })),
- GET('/factory/delivery/:id',protectedRoute(async(_,ctx)=>Response.json(await existing(ctx.params.id)))),
+ GET('/factory/delivery/:id',protectedRoute(async(_,ctx)=>{
+  // Terminal deliveries no longer advance, so attach a late-arriving preview here, at most once a minute.
+  const current=await existing(ctx.params.id);const p=current.publication;
+  if(p&&p.preview?.state!=='success'&&(!p.preview||Date.now()-Date.parse(p.preview.checkedAt)>60_000)){
+   const before=JSON.stringify(p.preview);await refreshPreview(current);
+   if(JSON.stringify(current.publication?.preview)!==before)await updateDelivery(current.id,saved=>{if(!saved)throw new Error('Delivery not found');if(saved.publication&&saved.publication.headSha===current.publication?.headSha)saved.publication={...saved.publication,preview:current.publication!.preview};return{state:saved,result:saved};});
+  }
+  return Response.json(await existing(ctx.params.id));
+ })),
  GET('/factory/delivery/:id/reconcile',protectedRoute(async(_,ctx)=>{
   const state=await existing(ctx.params.id);
   if(!state.publication)return Response.json({deliveryId:state.id,...reconcileManuallyMergedDelivery(state,undefined,repository)});

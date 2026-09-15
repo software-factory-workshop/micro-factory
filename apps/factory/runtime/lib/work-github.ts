@@ -269,9 +269,19 @@ export async function publishWork(token: string, input: PublishWorkInput, signal
    headSha=await currentHead();if(!headSha||!await samePublication(headSha))throw new WorkError("stale_head","Published head differs from this operation.");
   }
   const query=new URLSearchParams({state:"all",head:`${repository.split("/")[0]}:${branch}`,base:targetBranch,per_page:"100"});
-  const response=await request(token,`pulls?${query}`,signal);if(response.next)throw new Error("Unexpected paginated owner PRs.");
-  const candidates=z.array(pullSchema).parse(response.data);if(candidates.length>1)throw new Error("Ambiguous owner PRs.");
-  let pr=candidates[0];
+  // GitHub's pull list can lag a just-moved branch ref by a few seconds. The ref update above is
+  // ours and verified, so give the PR head a bounded moment to catch up before calling it stale
+  // (observed 15 Sep: two verified revisions were reported as "Owner PR changed" while the branch
+  // already carried the new head, and the loop lost the publication).
+  let pr: z.infer<typeof pullSchema>|undefined;
+  for(let attempt=1;;attempt+=1){
+   const response=await request(token,`pulls?${query}`,signal);if(response.next)throw new Error("Unexpected paginated owner PRs.");
+   const candidates=z.array(pullSchema).parse(response.data);if(candidates.length>1)throw new Error("Ambiguous owner PRs.");
+   pr=candidates[0];
+   const lagging=pr&&pr.state==="open"&&pr.head.sha!==headSha&&input.previous&&pr.number===input.previous.number&&pr.head.sha===input.previous.headSha;
+   if(!lagging||attempt>=6)break;
+   await new Promise(resolve=>setTimeout(resolve,2000));
+  }
   if(pr&&(pr.state!=="open"||pr.head.sha!==headSha||input.previous&&pr.number!==input.previous.number))throw new WorkError("stale_head","Owner PR changed or closed.");
   if(!pr){
    try{pr=pullSchema.parse((await request(token,"pulls",signal,{head:branch,base:targetBranch,title:input.title,body:`${input.body}\n\n<!-- ${ownerMarker}\n${marker} -->`,draft:true})).data);}
