@@ -55,7 +55,7 @@ Codes minted with `expiresAt` are 6 characters and cannot be typed on the code p
 3. **One PR on `dev` → `main`**, not a draft. Its Vercel preview is the review surface; the cockpit shows **Open preview** once Vercel reports it. Gates review the exact head; blocking findings go back to the same owner on the same branch.
 4. **Approve and merge**: when both gates approve, the cockpit shows **Approve and merge** (a reason is required, recorded on the receipt). The host squash-merges into `main` under Cedar `merge_change` and Vercel deploys production. Nothing merges without a person.
 
-Bootstrap credentials (`GITHUB_BOOTSTRAP_TOKEN`, `VERCEL_TOKEN`) live only on the cockpit project; stations never see them. They are Rémi's personal tokens for now: rotate after the workshop.
+Bootstrap credentials (`GITHUB_BOOTSTRAP_TOKEN`, `FACTORY_VERCEL_TOKEN`) live only on the cockpit project; stations never see them. They are Rémi's personal tokens for now: rotate after the workshop.
 
 ## The migrated app is DEPLOYED
 

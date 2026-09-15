@@ -39,7 +39,7 @@ export const defaultPrototypeRepository = `${githubOrganization}/adeo-kanban-pro
 export const factoryBranch = "dev";
 // Host credentials for the bootstrap step only (repository generation, Vercel project creation).
 // Stations never see them; every other GitHub call uses the Connect connector below.
-export const bootstrapEnv = { github: "GITHUB_BOOTSTRAP_TOKEN", vercel: "VERCEL_TOKEN" } as const;
+export const bootstrapEnv = { github: "GITHUB_BOOTSTRAP_TOKEN", vercel: "FACTORY_VERCEL_TOKEN" } as const;
 // Passport connector attached to every generated target project (same identity provider as the cockpit).
 export const passportConnectorId = "scl_LWyB1t8S7w35VwrCW8Qp5Q";
 
