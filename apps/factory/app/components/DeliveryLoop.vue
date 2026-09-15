@@ -122,14 +122,32 @@ function relativeTime(value?: string) {
   return `${Math.round(seconds / 3600)} h ago`;
 }
 const activityLine = computed(() => {
-  const activity = run.value?.activity;
-  if (!activity) return undefined;
+  const current = activity.value;
+  if (!current) return undefined;
+  const activity = current;
   const last = activity.lastTool;
   const lastText = last ? `last ${last.outcome === "running" ? "running" : last.outcome === "error" ? "failed" : "finished"} ${displayToolName(last.toolName).toLowerCase()}${last.summary ? ` → ${last.summary}` : ""}` : undefined;
   return [`step ${activity.steps}`, `${activity.toolCalls} tool calls${activity.toolErrors ? ` (${activity.toolErrors} failed)` : ""}`, lastText, activity.lastEventAt ? `last event ${relativeTime(activity.lastEventAt)}` : undefined].filter(Boolean).join(" · ");
 });
 const phaseDetail = computed(() => pendingOwnerQuestion.value?.question || run.value?.error || (run.value && runningPhases.has(run.value.phase) && activityLine.value) || run.value?.mergeDecision?.reason || run.value?.review?.summary || (run.value && runningPhases.has(run.value.phase) ? "Station accepted; waiting for its first events." : "The durable workflow is observing the next station."));
 const currentAttempt = computed(() => attempts.value.find(item => item.sessionId === run.value?.execution?.sessionId) ?? attempts.value.at(-1));
+// Deliveries recorded before the loop kept `activity` still have their station stream: read
+// its digest once so an old failure explains itself too.
+type Activity = NonNullable<Delivery["activity"]>;
+const fetchedActivity = ref<Activity>();
+let fetchedFor: string | undefined;
+const activity = computed<Activity | undefined>(() => run.value?.activity ?? fetchedActivity.value);
+watch(() => [run.value?.id, run.value?.activity, currentAttempt.value?.sessionId, run.value?.phase] as const, async ([id, recorded, sessionId, phase]) => {
+  if (!id || recorded || !sessionId || !phase || !stopped.has(phase) || fetchedFor === sessionId) return;
+  fetchedFor = sessionId;
+  try {
+    const digest = await $fetch<{ eventCount: number; steps: number; toolCalls: number; toolErrors: number; lastAt?: string; lastTool?: Activity["lastTool"]; lastError?: Activity["lastError"]; finalMessage?: string; terminal?: Activity["terminal"]; model?: string }>(`/factory/cockpit/run/${encodeURIComponent(sessionId)}/digest`, { retry: 0 });
+    if (fetchedFor !== sessionId) return;
+    fetchedActivity.value = { updatedAt: new Date().toISOString(), eventCount: digest.eventCount, steps: digest.steps, toolCalls: digest.toolCalls, toolErrors: digest.toolErrors, lastEventAt: digest.lastAt, lastTool: digest.lastTool, lastError: digest.lastError, finalMessage: digest.finalMessage, terminal: digest.terminal, model: digest.model };
+  } catch {
+    // The attempt link still leads to the full run page.
+  }
+}, { immediate: true });
 const updatedLabel = computed(() => formatDeliveryUpdatedAt(run.value?.updatedAt));
 const usageLabel = computed(() => formatModelUsage(run.value?.usage));
 const gateReviews = computed(() => Object.entries(run.value?.reviews ?? {}).filter((entry): entry is [string, Review] => !!entry[1]));
@@ -462,15 +480,15 @@ onBeforeUnmount(() => {
     </details>
     <div v-if="run?.mergeDecision" class="delivery-note delivery-decision"><UBadge :color="mergeColor(run.mergeDecision.status)" variant="soft">Merge decision · {{ run.mergeDecision.status }}</UBadge><span v-if="run.mergeDecision.reason">{{ run.mergeDecision.reason }}</span></div>
     <p v-if="run?.error" class="delivery-error" role="alert">{{ run.error }}</p>
-    <section v-if="run?.activity" class="station-activity" aria-labelledby="station-activity-heading">
-      <div class="section-heading"><h3 id="station-activity-heading">What the station did</h3><span class="small muted">{{ run.activity.steps }} model steps · {{ run.activity.toolCalls }} tool calls<template v-if="run.activity.toolErrors"> · {{ run.activity.toolErrors }} failed</template><template v-if="run.activity.model"> · {{ run.activity.model }}</template></span></div>
+    <section v-if="activity" class="station-activity" aria-labelledby="station-activity-heading">
+      <div class="section-heading"><h3 id="station-activity-heading">What the station did</h3><span class="small muted">{{ activity.steps }} model steps · {{ activity.toolCalls }} tool calls<template v-if="activity.toolErrors"> · {{ activity.toolErrors }} failed</template><template v-if="activity.model"> · {{ activity.model }}</template></span></div>
       <dl class="activity-grid">
-        <div v-if="run.activity.terminal"><dt>Session ended</dt><dd><code>{{ run.activity.terminal.type }}</code><template v-if="run.activity.terminal.at"> · {{ historyAt(run.activity.terminal.at) }}</template><template v-if="run.activity.terminal.code"> · {{ run.activity.terminal.code }}</template><span v-if="run.activity.terminal.message"> · {{ run.activity.terminal.message }}</span></dd></div>
-        <div v-else-if="run.activity.lastEventAt"><dt>Last event</dt><dd>{{ historyAt(run.activity.lastEventAt) }} ({{ relativeTime(run.activity.lastEventAt) }})</dd></div>
-        <div v-if="run.activity.lastError" class="activity-error"><dt>Last failing tool</dt><dd><code>{{ run.activity.lastError.toolName }}</code> · {{ run.activity.lastError.message }}</dd></div>
-        <div v-if="run.activity.lastTool"><dt>Last tool</dt><dd><code>{{ run.activity.lastTool.toolName }}</code> · {{ run.activity.lastTool.outcome === 'ok' ? 'finished' : run.activity.lastTool.outcome === 'error' ? 'failed' : 'running' }}<template v-if="run.activity.lastTool.input"> · <span class="muted">{{ run.activity.lastTool.input }}</span></template><template v-if="run.activity.lastTool.summary"> → {{ run.activity.lastTool.summary }}</template></dd></div>
+        <div v-if="activity.terminal"><dt>Session ended</dt><dd><code>{{ activity.terminal.type }}</code><template v-if="activity.terminal.at"> · {{ historyAt(activity.terminal.at) }}</template><template v-if="activity.terminal.code"> · {{ activity.terminal.code }}</template><span v-if="activity.terminal.message"> · {{ activity.terminal.message }}</span></dd></div>
+        <div v-else-if="activity.lastEventAt"><dt>Last event</dt><dd>{{ historyAt(activity.lastEventAt) }} ({{ relativeTime(activity.lastEventAt) }})</dd></div>
+        <div v-if="activity.lastError" class="activity-error"><dt>Last failing tool</dt><dd><code>{{ activity.lastError.toolName }}</code> · {{ activity.lastError.message }}</dd></div>
+        <div v-if="activity.lastTool"><dt>Last tool</dt><dd><code>{{ activity.lastTool.toolName }}</code> · {{ activity.lastTool.outcome === 'ok' ? 'finished' : activity.lastTool.outcome === 'error' ? 'failed' : 'running' }}<template v-if="activity.lastTool.input"> · <span class="muted">{{ activity.lastTool.input }}</span></template><template v-if="activity.lastTool.summary"> → {{ activity.lastTool.summary }}</template></dd></div>
       </dl>
-      <blockquote v-if="run.activity.finalMessage" class="agent-words"><p class="small muted">The agent's own closing words (model text, not host evidence):</p><p>{{ run.activity.finalMessage }}</p></blockquote>
+      <blockquote v-if="activity.finalMessage" class="agent-words"><p class="small muted">The agent's own closing words (model text, not host evidence):</p><p>{{ activity.finalMessage }}</p></blockquote>
       <p v-if="currentAttempt" class="small"><NuxtLink :to="attemptLink(currentAttempt)">Open the full tool timeline of this station run</NuxtLink></p>
     </section>
     <section v-if="attempts.length" class="review-evidence" aria-labelledby="attempts-heading">
