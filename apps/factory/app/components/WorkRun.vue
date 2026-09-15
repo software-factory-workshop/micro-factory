@@ -91,19 +91,41 @@ async function followChild() {
     deliveryStarted.value = false;
     // A background task may emit subagent.called after the dispatcher's turn ends.
     // The chat composable stops at that boundary; follow the durable tail directly.
+    // A long session replays thousands of events (7,467 for one migrator run). Reactive
+    // updates per event froze the tab, so the projection is folded locally and flushed to
+    // the UI in batches, yielding to the event loop between them.
+    let projection = tailData.value;
+    let turnState: StationTurn = "unknown";
+    let started = false;
+    let sinceFlush = 0;
+    let lastFlush = performance.now();
+    const flush = () => {
+      tailData.value = boundStationProjection(projection, props.station, props.operationId);
+      tailTurn.value = turnState;
+      deliveryStarted.value = started;
+      triggerRef(tailEvents);
+      sinceFlush = 0;
+      lastFlush = performance.now();
+    };
     for await (const event of readStationStream(props.sessionId, controller.signal)) {
       if (props.deliveryId) {
-        if (!matchesStationDelivery(event, props.deliveryId, deliveryStarted.value)) continue;
-        deliveryStarted.value = true;
+        if (!matchesStationDelivery(event, props.deliveryId, started)) continue;
+        started = true;
       }
       appendStationTail(tailEvents.value, event);
-      triggerRef(tailEvents);
-      tailTurn.value = advanceStationTurn(tailTurn.value, event);
-      tailData.value = boundStationProjection(reducer.reduce(tailData.value, event), props.station, props.operationId);
+      turnState = advanceStationTurn(turnState, event);
+      projection = reducer.reduce(projection, event);
       if (event.type === "subagent.called" && event.data.name === props.station) {
         discoveredChild.value = event.data.childSessionId;
       }
+      sinceFlush++;
+      if (sinceFlush >= 200 || performance.now() - lastFlush > 400) {
+        flush();
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        if (controller.signal.aborted) break;
+      }
     }
+    if (!controller.signal.aborted) flush();
     if (!controller.signal.aborted && !result.value && !stopped.value) discoveryError.value = true;
   } catch { if (!controller.signal.aborted && !result.value && !stopped.value) discoveryError.value = true; }
   finally { controller.abort(); discovery = undefined; }
