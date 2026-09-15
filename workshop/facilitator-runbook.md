@@ -46,9 +46,15 @@ curl -s -X POST -H "X-API-KEY: $POCKET_ID_KEY" -H 'content-type: application/jso
 
 Codes minted with `expiresAt` are 6 characters and cannot be typed on the code page; always use `ttl`. User ids: `GET /api/users?search=persona`.
 
-## What a migrated preview shows
+## The migrated app is DEPLOYED
 
-Open the Vercel preview of a factory PR (for example PR #11): the todo page renders behind Passport with the visitor's verified identity, `/api/todos` answers with `persistence: fixture` because no DSQL cluster credentials are set on the project (the DSQL module is selected only when `DSQL_CLUSTER_ENDPOINT` exists), and `/api/jira` answers `source: fixture` because the migrated app asks Connect for an app-subject token while the Jira MCP connector is user-authorised. Both are labelled fixtures in the UI, which is the behaviour the brief asked for when hosted integrations are absent, and both are worth pointing at in the room: the gates verified the code paths in the sandbox, not the hosted integrations.
+The target project `adeo-todo-nuxt` is on Vercel, git-linked: `main` (the bare shell) is production and every factory branch gets a preview deployment behind Passport. The loop records that preview on the publication (read from the GitHub deployment status Vercel posts for the exact head) and the cockpit shows **Open preview** next to **Open PR** once it is live. Open it in the room: the todo page renders with the visitor's verified Passport identity.
+
+What is live in the preview and what is not:
+
+- Identity: live (Vercel Passport, verified subject).
+- Jira issues: live through the Jira clone MCP with a per-user Connect consent (the "Authorise with the Jira clone" button), after the revision requested on PR #11 the night before. Before that revision the section showed labelled fixture issues because the candidate asked Connect for an app-subject token.
+- Persistence: `fixture` (labelled) until Aurora DSQL is installed on the project. The AWS Marketplace integration offers it: accept the Marketplace terms once at https://vercel.com/demo-software-factory/~/integrations/accept-terms/aws then run `vercel integration add aws/aws-dsql -n adeo-todo-dsql` from `adeo-todo-nuxt`; the app selects DSQL when `DSQL_CLUSTER_ENDPOINT` (plus region/database/user) is present, so map the integration's variable names to those four if they differ, and redeploy.
 
 ## M0 in the room
 
