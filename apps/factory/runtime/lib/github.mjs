@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { githubInput } from './github-input.mjs';
+import { readTarGz, gitBlobSha } from './tarball.ts';
 import { factoryModelIds, factoryRepository, prototypeRepository, passportProjectId, vercelTeamId, vercelTeamName } from './factory-config.ts';
 
 export const repository = factoryRepository;
@@ -50,6 +51,25 @@ export function manifestFor(entries) {
   return entries.map(({ file, content }) => ({ file, bytes: Buffer.byteLength(content), sha256: createHash('sha256').update(content).digest('hex') }));
 }
 
+
+// One archive request per revision instead of one blob request per file; every entry is checked
+// against the blob id the tree names, and a missing or different entry falls back to git/blobs.
+async function archiveEntries(token, repo, revision, signal) {
+  try {
+    const response = await fetch(`https://api.github.com/repos/${repo}/tarball/${revision}`, {
+      redirect: 'follow',
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
+      signal: AbortSignal.any([signal || new AbortController().signal, AbortSignal.timeout(60000)]),
+    });
+    if (!response.ok) return undefined;
+    const archive = Buffer.from(await response.arrayBuffer());
+    if (archive.length > 200000000) return undefined;
+    return new Map(readTarGz(archive).map(entry => [entry.path, entry.content]));
+  } catch {
+    return undefined;
+  }
+}
+
 export async function loadRepository(token, signal, repo = repository, ref = 'main') {
   const { data: commit } = await github(`commits/${ref}`, token, signal, repo);
   if (!/^[a-f0-9]{40}$/.test(commit.sha) || !/^[a-f0-9]{40}$/.test(commit.commit?.tree?.sha)) throw new Error('Invalid repository revision.');
@@ -57,10 +77,13 @@ export async function loadRepository(token, signal, repo = repository, ref = 'ma
   if (tree.truncated || !Array.isArray(tree.tree)) throw new Error('Repository tree is incomplete.');
   const selected = tree.tree.filter(item => item.type === 'blob' && item.mode !== '120000' && includeSource(item.path));
   if (selected.length > 1500 || selected.reduce((sum, item) => sum + (item.size ?? 0), 0) > 50000000) throw new Error('Source snapshot exceeds the station limit.');
+  const archived = await archiveEntries(token, repo, commit.sha, signal);
   const entries = [];
   for (let offset = 0; offset < selected.length; offset += 6) {
     entries.push(...await Promise.all(selected.slice(offset, offset + 6).map(async item => {
       if (!/^[a-f0-9]{40}$/.test(item.sha) || item.path.split('/').includes('..') || item.path.startsWith('/')) throw new Error('Invalid source path.');
+      const fromArchive = archived?.get(item.path);
+      if (fromArchive && gitBlobSha(fromArchive) === item.sha) return { file: item.path, content: fromArchive };
       const { data: blob } = await github(`git/blobs/${item.sha}`, token, signal, repo);
       if (blob.encoding !== 'base64') throw new Error('Unsupported source encoding.');
       return { file: item.path, content: Buffer.from(blob.content, 'base64') };
