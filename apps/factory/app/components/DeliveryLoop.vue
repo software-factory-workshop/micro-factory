@@ -189,6 +189,7 @@ const briefReady = computed(() => briefLength.value >= MIN_WORK_REQUEST_LENGTH);
 const canCompose = computed(() => props.mode === "compose" && !!props.draftId && !!props.repository && !!props.prototype);
 const repoUrl = (repository?: string) => repository ? `https://github.com/${repository}` : "";
 // Both gates approved the exact published head with no blocking finding, and nothing is merged yet.
+const approvable = computed(() => !!run.value?.publication && ['ready', 'human_review'].includes(run.value.phase));
 const mergeable = computed(() => {
   const value = run.value;
   const head = value?.publication?.headSha;
@@ -196,7 +197,7 @@ const mergeable = computed(() => {
   return ["quality-gate", "security-gate"].every(gate => { const review = value.reviews?.[gate]; return review?.verdict === "approve" && review.headSha === head && !(review.findings ?? []).some(f => f.severity === "blocking"); });
 });
 async function approveMerge() {
-  if (!run.value || !mergeable.value || merging.value || mergeReason.value.trim().length < 3) return;
+  if (!run.value || !approvable.value || merging.value || mergeReason.value.trim().length < 3) return;
   merging.value = true;
   error.value = "";
   try {
@@ -547,7 +548,7 @@ onBeforeUnmount(() => {
       <UButton v-if="attention === 'blocked'" color="warning" :disabled="working" icon="i-lucide-rotate-ccw" @click="resume">Resume</UButton>
       <UButton v-if="attention === 'flawed'" :disabled="working" icon="i-lucide-message-square-more" @click="revisionFocus = true">Request revision</UButton>
       <UButton v-if="attention === 'waiting'" icon="i-lucide-message-circle-reply" @click="ownerAnswerFocus = true">Answer</UButton>
-      <UButton v-if="mergeable" color="success" icon="i-lucide-git-merge" :disabled="merging" @click="mergeFocus = true">Approve and merge</UButton>
+      <UButton v-if="approvable" :color="mergeable ? 'success' : 'warning'" icon="i-lucide-git-merge" :disabled="merging" @click="mergeFocus = true">{{ mergeable ? 'Approve and merge' : 'Approve and merge anyway' }}</UButton>
       <UButton v-if="run?.merge && run.bootstrap" :to="run.bootstrap.productionUrl" target="_blank" rel="noopener noreferrer" icon="i-lucide-rocket">Open production</UButton>
       <UButton v-if="attention === 'ready' && run?.publication" :to="run.publication.url" target="_blank" rel="noopener noreferrer" icon="i-lucide-git-pull-request">Open PR #{{ run.publication.number }}</UButton>
       <UButton v-else-if="run?.publication" :to="run.publication.url" target="_blank" rel="noopener noreferrer" variant="outline" icon="i-lucide-git-pull-request">PR #{{ run.publication.number }}</UButton>
@@ -558,9 +559,10 @@ onBeforeUnmount(() => {
       <UButton v-if="run && !stopped.has(run.phase)" variant="outline" color="error" :loading="stopping" :disabled="working || stopping" @click="requestCancel">Stop</UButton>
     </div>
     <p v-if="run" class="small muted">Attention: <strong>{{ attention }}</strong>. Verdicts apply to head <code>{{ run.publication?.headSha || 'not published' }}</code>{{ run.merge ? `; merged into ${run.merge.targetBranch} as ${run.merge.commitSha.slice(0, 10)} after ${run.merge.approvedBy} approved` : '; the host merges only after your approval' }}.</p>
-    <fieldset v-if="mergeable" class="decision merge-approval" :class="{ focused: mergeFocus }">
-      <legend>Approve the merge</legend>
-      <p class="small">Both gates approved head <code>{{ run?.publication?.headSha?.slice(0, 12) }}</code>. Open the preview first; on approval the host squash-merges PR #{{ run?.publication?.number }} into <code>{{ run?.publication?.targetBranch }}</code> and Vercel deploys production.</p>
+    <fieldset v-if="approvable" class="decision merge-approval" :class="{ focused: mergeFocus }">
+      <legend>{{ mergeable ? 'Approve the merge' : 'Your decision on the open findings' }}</legend>
+      <p v-if="mergeable" class="small">Both gates approved head <code>{{ run?.publication?.headSha?.slice(0, 12) }}</code>. Open the preview first; on approval the host squash-merges PR #{{ run?.publication?.number }} into <code>{{ run?.publication?.targetBranch }}</code> and Vercel deploys production.</p>
+      <p v-else class="small">Head <code>{{ run?.publication?.headSha?.slice(0, 12) }}</code> still has gate findings (listed above). You can request another revision, or approve anyway: the receipt then records that you merged over open findings, with your reason.</p>
       <UFormField label="Reason (recorded on the receipt)" name="merge-reason"><UInput v-model="mergeReason" :maxlength="1000" placeholder="Preview checked: board renders with my identity, cards persist…" /></UFormField>
       <UButton color="success" icon="i-lucide-git-merge" :loading="merging" :disabled="merging || mergeReason.trim().length < 3" @click="approveMerge">Merge into {{ run?.publication?.targetBranch }}</UButton>
     </fieldset>

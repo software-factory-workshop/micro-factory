@@ -113,4 +113,11 @@ export const FACTORY_POLICY_METADATA: readonly FactoryPolicyMetadata[] = [
     summary: "Allows only the host-owned delivery driver to merge an exact independently reviewed low-risk candidate.",
     enforcedAt: ["merge_change"],
   },
+  {
+    id: "factory-operator-merges-approved-change",
+    kind: "permit",
+    title: "A person approves the merge",
+    summary: "Allows the host-owned delivery driver to merge a published head once a human approval with a reason is attached, including over open gate findings (evidence source factory.human-approval).",
+    enforcedAt: ["merge_change"],
+  },
 ] as const;

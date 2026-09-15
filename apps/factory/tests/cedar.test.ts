@@ -66,7 +66,7 @@ test("canonical Cedar files are generated, strictly validated, and revisioned", 
   );
   const manifest = factoryPolicyManifest();
   assert.equal(manifest.schema, getFactoryCedarSchema());
-  assert.equal(manifest.policies.length, 15);
+  assert.equal(manifest.policies.length, 16);
   assert.ok(manifest.actions.every((action) => "inputSchema" in action));
 });
 
@@ -155,6 +155,19 @@ test("review, verification, checks, and low-risk merge bind their host roles", (
   });
   assert.equal(elevated.decision, "DENY");
   assert.ok(elevated.determiningPolicies.includes("factory-forbid-elevated-auto-merge"));
+});
+
+test("a person's approval lets the host merge a published head over open findings; without it, incomplete evidence is denied", () => {
+  const mergeSha = "e".repeat(40);
+  const ctx = { expectedRevision: baseSha, candidateSha: mergeSha, baseSha, verifiedSha: mergeSha, reviewedSha: mergeSha, branch: "main", lane: "merge" as const, budget: 0, riskClass: "low" as const, evidence: { id: "merge-2", source: "factory.human-approval", complete: true, candidateSha: mergeSha } };
+  const resource = change({ id: "42", candidateSha: mergeSha, baseSha, branch: "main", expectedRevision: baseSha });
+  const denied = evaluateFactory({ principal: mergeDriver, action: "merge_change", input: { pullRequest: "42", targetBranch: "main" }, resource, context: ctx });
+  assert.equal(denied.decision, "DENY");
+  const approved = evaluateFactory({ principal: mergeDriver, action: "merge_change", input: { pullRequest: "42", targetBranch: "main" }, resource, context: { ...ctx, approval: { id: "approval-1", actor: "user:remi", human: true } } });
+  assert.equal(approved.decision, "ALLOW", approved.errors.join("\n"));
+  assert.ok(approved.determiningPolicies.includes("factory-operator-merges-approved-change"));
+  const machine = evaluateFactory({ principal: mergeDriver, action: "merge_change", input: { pullRequest: "42", targetBranch: "main" }, resource, context: { ...ctx, approval: { id: "approval-2", actor: "svc", human: false } } });
+  assert.equal(machine.decision, "DENY");
 });
 
 test("missing evidence and unbound services fail closed", () => {

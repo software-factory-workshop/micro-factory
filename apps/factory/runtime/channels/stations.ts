@@ -18,7 +18,12 @@ export async function stationOperation(request:Request,{from,params,resolveSessi
     const pr=await readPull(token,revision.prNumber,undefined,revision.repository);
     if(pr.state!=="open")throw new WorkError("invalid_request","Only open pull requests can be revised.");
     const ownerId=ownerFromBody(pr.body||"");const root=await recordedRoot(ownerId);const owner=root?rootSession(root,ownerId):attachSession(ownerId);
-    const proof=await verifyOwnerStream(owner,ownerId,pr.number,pr.head.ref);
+    // Ownership proof: the owner's own publish_work result in its durable stream. After several revision
+    // cycles that stream exceeds the bounded scan window (observed 15 Sep, cycle 3 of PR #2), so the host
+    // falls back to the commit marker: only publish_work writes `Factory-Session: sha256(owner)` into the head.
+    let proof:{branch:string;headSha:string;number:number};
+    try{proof=await verifyOwnerStream(owner,ownerId,pr.number,pr.head.ref);}
+    catch(error){if(!(error instanceof WorkError&&error.code==="owner_unavailable"))throw error;proof={branch:pr.head.ref,headSha:pr.head.sha,number:pr.number};}
     await verifyOwnerCommit(token,proof,ownerId,undefined,revision.repository);
     const accepted=await owner.send("Apply the authenticated revision from prepare_work. Preserve the original task boundaries; revise your own PR only.",{turnPolicy:"queue",auth:{...auth,attributes:{...auth.attributes,factoryRevision:JSON.stringify(revision),factoryRevisionOperationId:revision.operationId}}});
     if(accepted.status!=="accepted"||!accepted.deliveryId)throw new WorkError("owner_unavailable","Original owner is no longer active; create a child PR instead.");

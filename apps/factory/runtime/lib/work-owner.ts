@@ -19,9 +19,9 @@ export function ownerPublication(event:unknown,ownerId:string,number:number,bran
 }
 async function readOwnerStream(session:{getStreamTailIndex():Promise<number>;getEventStream(options:{startIndex:number}):Promise<ReadableStream<unknown>>},ownerId:string,number:number,branch:string){
  const tail=await session.getStreamTailIndex();
- if(tail>30000)throw new WorkError("owner_unavailable","Owner history exceeds the bounded verification window.");
+ if(tail>120000)throw new WorkError("owner_unavailable","Owner history exceeds the bounded verification window.");
  const reader=(await session.getEventStream({startIndex:0})).getReader();let found=null;
- const timer=setTimeout(()=>void reader.cancel(),15000);
+ const timer=setTimeout(()=>void reader.cancel(),45000);
  try{for(let n=0;n<=tail;n++){const item=await reader.read();if(item.done)break;found=ownerPublication(item.value,ownerId,number,branch)||found;}}
  finally{clearTimeout(timer);await reader.cancel();}
  if(!found)throw new WorkError("owner_unavailable","The original owner is unavailable or predates revision support. Create a child PR; this branch will not be adopted by another agent.");

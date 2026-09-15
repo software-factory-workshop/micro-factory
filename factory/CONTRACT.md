@@ -98,10 +98,12 @@ evidence; the host records a blocking finding without them as nonblocking.
 The bootstrap credentials (`GITHUB_BOOTSTRAP_TOKEN`, `FACTORY_VERCEL_TOKEN`) exist only
 on the host and only for generating the target repository, creating its Vercel
 project and starting the production deployment of `main`. No station holds
-them. The merge is a host operation guarded by Cedar `merge_change`: it
-requires both gate approvals bound to the exact published head, no blocking
-finding, and a person's approval with a reason recorded on the receipt. Nothing
-merges without that approval.
+them. The merge is a host operation guarded by Cedar `merge_change` and
+decided by a person in the cockpit, with a reason recorded on the receipt. When
+both gates approved the exact published head the evidence is complete; when a
+gate still requests changes the person may approve anyway, and the receipt
+records that the merge happened over open findings. Nothing merges without a
+person's approval.
 
 ## Authority
 

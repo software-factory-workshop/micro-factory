@@ -521,7 +521,11 @@ export function nextGate(current: GateStation | undefined): GateStation | undefi
 
 // A review is usable only for the host-published candidate and captured target.
 // Gates run in order; every gate must approve without limitations before `ready`.
-/** Both gates approved the exact published head with no blocking finding: the head a person may merge. */
+/** The published head a person may decide on: the delivery is waiting for a human and has a PR. */
+export function approvableHead(state: Delivery): string | undefined {
+  return state.publication && ['ready', 'human_review'].includes(state.phase) ? state.publication.headSha : undefined;
+}
+/** Both gates approved the exact published head with no blocking finding: a merge nobody needs to override. */
 export function mergeableHead(state: Delivery): string | undefined {
   const publication = state.publication;
   if (!publication || !['ready', 'human_review'].includes(state.phase)) return undefined;

@@ -20,7 +20,8 @@ when {
       "factory.verify_work",
       "factory.verify_review",
       "factory.review_gate",
-      "factory.merge-policy"
+      "factory.merge-policy",
+      "factory.human-approval"
     ].contains(context.evidence.source)
   )
 };

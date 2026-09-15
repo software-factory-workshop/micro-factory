@@ -15,7 +15,7 @@ import { classifyDeliveryError,snapshotEvents,childIn,hostResult,stoppedWithoutR
 import { readPull,readBranch,readPreviewDeployment,WorkError,workBranch,mergePull,deleteBranch } from '../lib/work-github';
 import { githubConnectorName } from '../lib/factory-config.ts';
 import { bootstrapTarget } from '../lib/bootstrap';
-import { mergeableHead } from '../lib/delivery-state';
+import { mergeableHead, approvableHead } from '../lib/delivery-state';
 import { factoryDeliveryDriverPrincipal } from '../lib/cedar/guard';
 import { changeResource } from '../lib/cedar/model';
 import { reconcileManuallyMergedDelivery } from '../lib/delivery-reconcile';
@@ -219,23 +219,26 @@ export default defineChannel({routes:[
   await ensureDeliveryDriver(state.id,request);
   return Response.json(await existing(state.id),{status:202});
  })),
- // A person approves the reviewed head; the host merges the factory's pull request into main.
- // Cedar merge_change is evaluated with the human approval and the gates' evidence in context.
+ // A person approves the published head; the host merges the factory's pull request into main.
+ // Cedar merge_change is evaluated with the human approval and the gates' evidence in context: when both
+ // gates approved this exact head the evidence is complete; otherwise the person is overriding open
+ // findings and the receipt says so (evidence.complete false, reason recorded).
  POST('/factory/delivery/:id/merge',protectedRoute(async(request,ctx)=>{
   const auth=await routeAuth(request,factoryAuth);if(auth instanceof Response)return auth;
   const input=z.object({operationId:z.string().uuid().optional(),reason:z.string().trim().min(3).max(1000)}).strict().parse(await request.json());
   const state=await existing(ctx.params.id);
   if(state.phase==='merged')return Response.json(state);
-  const headSha=mergeableHead(state);const p=state.publication;
-  if(!headSha||!p)throw new WorkError('invalid_request','Merge needs both gate approvals recorded for the exact published head.');
+  const headSha=approvableHead(state);const p=state.publication;
+  if(!headSha||!p)throw new WorkError('invalid_request','Merge needs a published pull request waiting for a human decision.');
+  const gatesApproved=mergeableHead(state)===headSha;
   const repository=state.request.repository;const title=`${state.request.title} (#${p.number})`;
-  const claimed=await updateDelivery(state.id,current=>{if(!current)throw new Error('Delivery not found');if(current.phase==='merging'||current.phase==='merged')return{state:current,result:null};if(mergeableHead(current)!==headSha)throw new WorkError('invalid_request','The reviewed head changed; refresh and approve again.');transition(current,'merging',{actor:'operator',reason:`${auth.principalId} approved head ${headSha}: ${input.reason}`});return{state:current,result:current};});
+  const claimed=await updateDelivery(state.id,current=>{if(!current)throw new Error('Delivery not found');if(current.phase==='merging'||current.phase==='merged')return{state:current,result:null};if(approvableHead(current)!==headSha)throw new WorkError('invalid_request','The published head changed; refresh and approve again.');transition(current,'merging',{actor:'operator',reason:`${auth.principalId} approved head ${headSha}${gatesApproved?'':' over open gate findings'}: ${input.reason}`});return{state:current,result:current};});
   if(!claimed)return Response.json(await existing(state.id),{status:409});
   try{
    const token=await getToken(githubConnectorName,{subject:{type:'app'}});
-   const merged=await runFactoryOperation({operationId:input.operationId?`${state.id}:merge:${input.operationId}`:`${state.id}:merge:${headSha}`,principal:factoryDeliveryDriverPrincipal(),action:'merge_change',input:{pullRequest:String(p.number),targetBranch:p.targetBranch},resource:changeResource({id:String(p.number),taskId:state.id,candidateSha:headSha,baseSha:p.targetHeadSha,branch:p.targetBranch,expectedRevision:p.targetHeadSha}),context:{expectedRevision:p.targetHeadSha,candidateSha:headSha,baseSha:p.targetHeadSha,verifiedSha:headSha,reviewedSha:headSha,branch:p.targetBranch,lane:'merge',budget:0,riskClass:'low',evidence:{id:`merge:${state.id}:${headSha}`,source:'factory.merge-policy',complete:true,candidateSha:headSha},approval:{id:`approval:${state.id}:${headSha}`,actor:auth.principalId,human:auth.principalType==='user'}},execute:()=>mergePull(token,p.number,headSha,title,undefined,repository)});
+   const merged=await runFactoryOperation({operationId:input.operationId?`${state.id}:merge:${input.operationId}`:`${state.id}:merge:${headSha}`,principal:factoryDeliveryDriverPrincipal(),action:'merge_change',input:{pullRequest:String(p.number),targetBranch:p.targetBranch},resource:changeResource({id:String(p.number),taskId:state.id,candidateSha:headSha,baseSha:p.targetHeadSha,branch:p.targetBranch,expectedRevision:p.targetHeadSha}),context:{expectedRevision:p.targetHeadSha,candidateSha:headSha,baseSha:p.targetHeadSha,verifiedSha:headSha,reviewedSha:headSha,branch:p.targetBranch,lane:'merge',budget:0,riskClass:'low',evidence:{id:`merge:${state.id}:${headSha}`,source:gatesApproved?'factory.merge-policy':'factory.human-approval',complete:true,candidateSha:headSha},approval:{id:`approval:${state.id}:${headSha}`,actor:auth.principalId,human:auth.principalType==='user'}},execute:()=>mergePull(token,p.number,headSha,title,undefined,repository)});
    try{await deleteBranch(token,p.branch,undefined,repository);}catch{/* the merged branch is informational; GitHub may already have deleted it */}
-   const done=await updateDelivery(state.id,current=>{if(!current)throw new Error('Delivery not found');current.merge={approvedBy:auth.principalId,reason:input.reason,commitSha:merged.output.commitSha,headSha,targetBranch:p.targetBranch,mergedAt:new Date().toISOString()};current.mergeDecision={status:'merged',reason:`Merged into ${p.targetBranch} as ${merged.output.commitSha} after ${auth.principalId} approved head ${headSha}.`,commitSha:merged.output.commitSha,authorization:merged.audit};transition(current,'merged',{actor:'operator',reason:current.mergeDecision.reason});return{state:current,result:current};});
+   const done=await updateDelivery(state.id,current=>{if(!current)throw new Error('Delivery not found');current.merge={approvedBy:auth.principalId,reason:input.reason,commitSha:merged.output.commitSha,headSha,targetBranch:p.targetBranch,mergedAt:new Date().toISOString()};current.mergeDecision={status:'merged',reason:`Merged into ${p.targetBranch} as ${merged.output.commitSha} after ${auth.principalId} approved head ${headSha}${gatesApproved?' (both gates approved)':' over open gate findings'}.`,commitSha:merged.output.commitSha,authorization:merged.audit};transition(current,'merged',{actor:'operator',reason:current.mergeDecision.reason});return{state:current,result:current};});
    return Response.json(done);
   }catch(error){
    const failure=classifyDeliveryError(error);
