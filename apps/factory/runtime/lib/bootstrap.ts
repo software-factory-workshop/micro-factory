@@ -62,8 +62,10 @@ async function vercel(token: string, path: string, init: { method?: string; body
   });
   const text = await response.text();
   const data = text ? JSON.parse(text) as Record<string, unknown> : null;
-  const error = data?.error as { message?: string } | undefined;
-  return { status: response.status, ok: response.ok, data, message: error?.message || "" };
+  const error = data?.error as { message?: string; code?: string } | undefined;
+  // The credential is described, never printed: length and prefix are enough to tell a stale or truncated value apart.
+  const message = error ? `${error.code ? `${error.code}: ` : ""}${error.message || ""}${response.status === 403 ? ` (token ${token.length} chars, ${token.slice(0, 4)}…, via ${response.headers.get("x-vercel-id") || "?"})` : ""}` : "";
+  return { status: response.status, ok: response.ok, data, message };
 }
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
