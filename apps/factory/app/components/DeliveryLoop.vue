@@ -121,33 +121,16 @@ function relativeTime(value?: string) {
   if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
   return `${Math.round(seconds / 3600)} h ago`;
 }
+
 const activityLine = computed(() => {
-  const current = activity.value;
-  if (!current) return undefined;
-  const activity = current;
-  const last = activity.lastTool;
+  const act = activity.value;
+  if (!act) return undefined;
+  const last = act.lastTool;
   const lastText = last ? `last ${last.outcome === "running" ? "running" : last.outcome === "error" ? "failed" : "finished"} ${displayToolName(last.toolName).toLowerCase()}${last.summary ? ` → ${last.summary}` : ""}` : undefined;
-  return [`step ${activity.steps}`, `${activity.toolCalls} tool calls${activity.toolErrors ? ` (${activity.toolErrors} failed)` : ""}`, lastText, activity.lastEventAt ? `last event ${relativeTime(activity.lastEventAt)}` : undefined].filter(Boolean).join(" · ");
+  return [`step ${act.steps}`, `${act.toolCalls} tool calls${act.toolErrors ? ` (${act.toolErrors} failed)` : ""}`, lastText, act.lastEventAt ? `last event ${relativeTime(act.lastEventAt)}` : undefined].filter(Boolean).join(" · ");
 });
 const phaseDetail = computed(() => pendingOwnerQuestion.value?.question || run.value?.error || (run.value && runningPhases.has(run.value.phase) && activityLine.value) || run.value?.mergeDecision?.reason || run.value?.review?.summary || (run.value && runningPhases.has(run.value.phase) ? "Station accepted; waiting for its first events." : "The durable workflow is observing the next station."));
-const currentAttempt = computed(() => attempts.value.find(item => item.sessionId === run.value?.execution?.sessionId) ?? attempts.value.at(-1));
-// Deliveries recorded before the loop kept `activity` still have their station stream: read
-// its digest once so an old failure explains itself too.
-type Activity = NonNullable<Delivery["activity"]>;
-const fetchedActivity = ref<Activity>();
-let fetchedFor: string | undefined;
-const activity = computed<Activity | undefined>(() => run.value?.activity ?? fetchedActivity.value);
-watch(() => [run.value?.id, run.value?.activity, currentAttempt.value?.sessionId, run.value?.phase] as const, async ([id, recorded, sessionId, phase]) => {
-  if (!id || recorded || !sessionId || !phase || !stopped.has(phase) || fetchedFor === sessionId) return;
-  fetchedFor = sessionId;
-  try {
-    const digest = await $fetch<{ eventCount: number; steps: number; toolCalls: number; toolErrors: number; lastAt?: string; lastTool?: Activity["lastTool"]; lastError?: Activity["lastError"]; finalMessage?: string; terminal?: Activity["terminal"]; model?: string }>(`/factory/cockpit/run/${encodeURIComponent(sessionId)}/digest`, { retry: 0 });
-    if (fetchedFor !== sessionId) return;
-    fetchedActivity.value = { updatedAt: new Date().toISOString(), eventCount: digest.eventCount, steps: digest.steps, toolCalls: digest.toolCalls, toolErrors: digest.toolErrors, lastEventAt: digest.lastAt, lastTool: digest.lastTool, lastError: digest.lastError, finalMessage: digest.finalMessage, terminal: digest.terminal, model: digest.model };
-  } catch {
-    // The attempt link still leads to the full run page.
-  }
-}, { immediate: true });
+
 const updatedLabel = computed(() => formatDeliveryUpdatedAt(run.value?.updatedAt));
 const usageLabel = computed(() => formatModelUsage(run.value?.usage));
 const gateReviews = computed(() => Object.entries(run.value?.reviews ?? {}).filter((entry): entry is [string, Review] => !!entry[1]));
@@ -183,6 +166,24 @@ function attemptLink(item: { station: string; sessionId: string; operationId?: s
   const eveDeliveryId = execution && execution.sessionId === item.sessionId && execution.operationId === item.operationId ? execution.deliveryId : undefined;
   return { path: "/work/run", query: { station, run: item.sessionId, rootAgent: station, ...(eveDeliveryId ? { deliveryId: eveDeliveryId } : {}), ...(item.operationId && station === "migrator" ? { operationId: item.operationId } : {}) } };
 }
+const currentAttempt = computed(() => attempts.value.find(item => item.sessionId === run.value?.execution?.sessionId) ?? attempts.value.at(-1));
+// Deliveries recorded before the loop kept `activity` still have their station stream: read
+// its digest once so an old failure explains itself too.
+type Activity = NonNullable<Delivery["activity"]>;
+const fetchedActivity = ref<Activity>();
+let fetchedFor: string | undefined;
+const activity = computed<Activity | undefined>(() => run.value?.activity ?? fetchedActivity.value);
+watch(() => [run.value?.id, run.value?.activity, currentAttempt.value?.sessionId, run.value?.phase] as const, async ([id, recorded, sessionId, phase]) => {
+  if (!id || recorded || !sessionId || !phase || !stopped.has(phase) || fetchedFor === sessionId) return;
+  fetchedFor = sessionId;
+  try {
+    const digest = await $fetch<{ eventCount: number; steps: number; toolCalls: number; toolErrors: number; lastAt?: string; lastTool?: Activity["lastTool"]; lastError?: Activity["lastError"]; finalMessage?: string; terminal?: Activity["terminal"]; model?: string }>(`/factory/cockpit/run/${encodeURIComponent(sessionId)}/digest`, { retry: 0 });
+    if (fetchedFor !== sessionId) return;
+    fetchedActivity.value = { updatedAt: new Date().toISOString(), eventCount: digest.eventCount, steps: digest.steps, toolCalls: digest.toolCalls, toolErrors: digest.toolErrors, lastEventAt: digest.lastAt, lastTool: digest.lastTool, lastError: digest.lastError, finalMessage: digest.finalMessage, terminal: digest.terminal, model: digest.model };
+  } catch {
+    // The attempt link still leads to the full run page.
+  }
+}, { immediate: true });
 const briefLength = computed(() => props.brief.trim().length);
 const briefReady = computed(() => briefLength.value >= MIN_WORK_REQUEST_LENGTH);
 const canCompose = computed(() => props.mode === "compose" && !!props.draftId && !!props.repository && !!props.prototype);
