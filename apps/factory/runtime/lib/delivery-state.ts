@@ -8,6 +8,7 @@ import { deliveryFailureKindValues, resumeMessage, type ClassifiedDeliveryError 
 import { modelUsageSchema, type ModelUsage } from './delivery-usage.ts';
 import type { WorkOrderAdmission } from '../../shared/cockpit.ts';
 import type { BootstrapResult } from './bootstrap.ts';
+import type { RunActivity } from './run-digest.ts';
 
 export const deliveryRequest = workerRequest.extend({
   // Bounds same-owner repair rounds after blocking review findings. It is not a
@@ -235,6 +236,9 @@ export interface Delivery {
   budgetRequest?: { requestId: string; sessionId: string; usedTokens?: number; limit?: number };
   questions: DeliveryQuestion[];
   usage?: ModelUsage;
+  // What the current station session has done so far, folded from every observation
+  // window: tool calls, last error, terminal event and the agent's closing words.
+  activity?: RunActivity;
   failure?: ClassifiedDeliveryError;
   failedPhase?: Phase;
   admissionFailure?: DeliveryAdmissionFailure;

@@ -24,7 +24,8 @@ export default defineTool({description:"Fetch the authenticated PR's exact base 
   // The read-only v0 prototype the candidate claims to migrate, pinned to the revision the
   // migrator recorded in the candidate's snapshot manifest when present. Without it the gate
   // could not check fidelity and recorded "incomplete" (observed 15 Sep on PR #10).
-  const prototype=await exportPrototype(sandbox,token,ctx.abortSignal,pull.snapshot.entries);
+  // Repository from the host request; revision from the migrator's PR body ("Prototype revision: <sha>"), else the request ref.
+  const prototype=await exportPrototype(sandbox,token,ctx.abortSignal,pull.snapshot.entries,gateInput.prototype,pull.body);
   // Baseline policy is taken from the exact PR base, not candidate-modified files.
   const rules=pull.baseSnapshot.entries.filter(e=>e.file==="factory/CONTRACT.md"||e.file.startsWith("factory/policies/"));
   for(const rule of rules)await sandbox.writeBinaryFile({path:`review-policy/${rule.file}`,content:rule.content});
@@ -45,10 +46,12 @@ export default defineTool({description:"Fetch the authenticated PR's exact base 
 });
 
 /** Export the prototype snapshot read-only into /workspace/prototype for fidelity review. */
-async function exportPrototype(sandbox:Awaited<ReturnType<any>>,token:string,signal:AbortSignal|undefined,headEntries:Array<{file:string;content:Buffer}>):Promise<{repository:string;revision:string;workspace:string;fileCount:number;note:string}|{repository:string;workspace:string;error:string}> {
+async function exportPrototype(sandbox:Awaited<ReturnType<any>>,token:string,signal:AbortSignal|undefined,headEntries:Array<{file:string;content:Buffer}>,requested?:{repository:string;ref:string},pullBody?:string):Promise<{repository:string;revision:string;workspace:string;fileCount:number;note:string}|{repository:string;workspace:string;error:string}> {
   let ref="main";
   const manifest=headEntries.find(entry=>entry.file===".factory-snapshot.json");
-  let repo=prototypeRepository;
+  let repo=requested?.repository||prototypeRepository;
+  if(requested)ref=requested.ref;
+  const recorded=pullBody?.match(/Prototype revision: `([a-f0-9]{40})`/)?.[1];if(recorded)ref=recorded;
   if(manifest){try{const parsed=JSON.parse(manifest.content.toString("utf8")) as {prototype?:{revision?:string;repository?:string}};if(parsed.prototype?.revision&&/^[a-f0-9]{40}$/.test(parsed.prototype.revision))ref=parsed.prototype.revision;if(parsed.prototype?.repository&&/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(parsed.prototype.repository))repo=parsed.prototype.repository;}catch{/* manifest unreadable: fall back to the default prototype */}}
   try{
     const prototype=await loadRepository(token,signal,repo,ref) as {revision:string;entries:Array<{file:string;content:Buffer}>};

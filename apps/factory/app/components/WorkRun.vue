@@ -3,7 +3,8 @@ import { useEveAgent, defaultMessageReducer, type EveMessageData } from "eve/vue
 import type { MessageStreamEvent } from "eve/client";
 import { triggerRef } from "vue";
 import { dispatchedTask, parseStationToolResult, pendingStationRequests, matchesStationDelivery, advanceStationTurn, appendStationTail, boundStationProjection, eventToolId, readStationStream, type StationKind, type StationTurn } from "../utils/work-station";
-import { stationFlow } from "../utils/observability-flow";
+import { stationFlow, displayToolName } from "../utils/observability-flow";
+import type { RunDigest } from "../../runtime/lib/run-digest.ts";
 import { copyText, shortIdentifier } from "../utils/technical-details";
 import { formatModelUsage } from "../utils/model-usage.ts";
 import { modelUsageFromEvents } from "../../runtime/lib/delivery-events.ts";
@@ -15,7 +16,42 @@ const copiedEvidence = ref<string>();
 let copyTimer: ReturnType<typeof setTimeout> | undefined;
 const childSettled = ref(false);
 const deliveryStarted = ref(false);
-const queuedForOwner = computed(() => !!props.deliveryId && !deliveryStarted.value);
+// Only a same-owner revision waits for the owner's queued turn; a first attempt is never "queued for owner".
+const queuedForOwner = computed(() => props.execution === "owner" && !!props.deliveryId && !deliveryStarted.value && digest.value?.status !== "completed" && digest.value?.status !== "failed" && digest.value?.status !== "cancelled");
+// Host-side digest of the whole session: status, tool timeline, last error, terminal event, the agent's closing words.
+const digest = shallowRef<RunDigest & { complete?: boolean }>();
+const digestError = ref("");
+const digestLoading = ref(false);
+let digestTimer: ReturnType<typeof setTimeout> | undefined;
+async function loadDigest() {
+  if (digestLoading.value) return;
+  digestLoading.value = true;
+  try {
+    digest.value = await $fetch<RunDigest & { complete?: boolean }>(`/factory/cockpit/run/${encodeURIComponent(props.sessionId)}/digest`, { retry: 0 });
+    digestError.value = "";
+  } catch (error) {
+    const status = typeof error === "object" && error && "status" in error ? ` (HTTP ${(error as { status: unknown }).status})` : "";
+    digestError.value = `The run digest could not be read${status}. The Eve stream of ${props.sessionId} may be on another root or unavailable.`;
+  } finally {
+    digestLoading.value = false;
+    clearTimeout(digestTimer);
+    if (!disposed && (digest.value?.status === "running" || digest.value?.status === "idle" || digestError.value)) digestTimer = setTimeout(() => void loadDigest(), 6000);
+  }
+}
+let disposed = false;
+const digestTools = computed(() => digest.value?.tools ?? []);
+const digestStatusLabel = computed(() => ({ idle: "No events yet", running: "Running", completed: "Turn completed", failed: "Failed", cancelled: "Cancelled", waiting_input: "Waiting for input" } as Record<string, string>)[digest.value?.status ?? ""] ?? "Unknown");
+function formatDuration(ms?: number) {
+  if (ms === undefined) return "";
+  if (ms < 1000) return `${ms} ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} s`;
+  return `${Math.floor(ms / 60_000)} min ${Math.round((ms % 60_000) / 1000)} s`;
+}
+function clock(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString("en-GB", { hour12: false });
+}
 const runLink = computed(() => `/work/run?${new URLSearchParams({ station: props.station, ...(props.rootAgent?{rootAgent:props.rootAgent}:{}), run: props.sessionId, ...(props.execution ? { execution: props.execution } : {}), ...(props.deliveryId ? { deliveryId: props.deliveryId } : {}), ...(props.operationId ? { operationId: props.operationId } : {}) })}`);
 const childRecorded = ref(false);
 const cancellationRequested = ref(false);
@@ -72,8 +108,8 @@ async function followChild() {
   } catch { if (!controller.signal.aborted && !result.value && !stopped.value) discoveryError.value = true; }
   finally { controller.abort(); discovery = undefined; }
 }
-onMounted(() => { void followChild(); });
-onBeforeUnmount(() => { discovery?.abort(); clearTimeout(copyTimer); });
+onMounted(() => { void followChild(); void loadDigest(); });
+onBeforeUnmount(() => { disposed = true; discovery?.abort(); clearTimeout(copyTimer); clearTimeout(digestTimer); });
 const result = computed(() => {
   for (const part of [...parts.value].reverse()) {
     if (part.type !== "dynamic-tool" || part.state !== "output-available") continue;
@@ -82,7 +118,8 @@ const result = computed(() => {
   }
   return undefined;
 });
-const turn = computed(() => tailData.value ? tailTurn.value : events.value.reduce(advanceStationTurn, "unknown"));
+const digestTurn = computed<StationTurn>(() => ({ running: "running", completed: "completed", failed: "failed", cancelled: "cancelled", waiting_input: "completed" } as Record<string, StationTurn>)[digest.value?.status ?? ""] ?? "unknown");
+const turn = computed(() => { const live = tailData.value ? tailTurn.value : events.value.reduce(advanceStationTurn, "unknown"); return live === "unknown" ? digestTurn.value : live; });
 const active = computed(() => turn.value === "running" || (!tailData.value && ["submitted", "streaming", "resuming"].includes(status.value)));
 const stopped = computed(() => turn.value === "cancelled");
 const ended = computed(() => ["completed", "failed"].includes(turn.value));
@@ -98,7 +135,11 @@ const summary = computed(() => (tailData.value || data.value).messages.filter(me
 const usageEvents = computed(() => props.deliveryId ? tailEvents.value : events.value);
 const usageLabel = computed(() => formatModelUsage(modelUsageFromEvents(usageEvents.value)));
 const tailEventRows = computed(() => tailEvents.value.map((event, index) => ({ event, index, toolId: eventToolId(event) })));
-const toolActivities = computed(() => parts.value.filter((part): part is Extract<typeof part, { type: "dynamic-tool" }> => part.type === "dynamic-tool").map((part, index) => ({ id: `tool-${index}-${part.toolName}`, toolName: part.toolName, state: part.state })));
+const toolActivities = computed(() => {
+  const live = parts.value.filter((part): part is Extract<typeof part, { type: "dynamic-tool" }> => part.type === "dynamic-tool").map((part, index) => ({ id: `tool-${index}-${part.toolName}`, toolName: part.toolName, state: part.state }));
+  if (live.length) return live;
+  return digestTools.value.map(tool => ({ id: `digest-${tool.callId}`, toolName: tool.toolName, state: tool.outcome === "ok" ? "output-available" : tool.outcome === "error" ? "output-error" : "input-available" }));
+});
 function authorizationLink(value: string | undefined) {
   if (!value) return undefined;
   try { const url = new URL(value); return url.protocol === "https:" ? url.href : undefined; } catch { return undefined; }
@@ -117,11 +158,16 @@ const flowModel = computed(() => stationFlow({
   child: props.child,
   tools: toolActivities.value,
 }));
-const label = computed(() => result.value ? result.value.station === "migrator" ? props.execution === "owner" ? "PR revised" : "Draft PR created" : result.value.verdict === "approve" ? "Gate passed" : result.value.verdict === "changes_requested" ? "Changes requested" : "Gate incomplete" : queuedForOwner.value ? "Queued for branch owner" : needsDecision.value ? "Awaiting decision" : stopped.value ? "Stopped" : awaitingChild.value ? "Station dispatched" : authorizations.value.length ? "Connection needed" : active.value ? "Running" : ended.value ? "Incomplete" : "Disconnected");
+const label = computed(() => result.value ? result.value.station === "migrator" ? props.execution === "owner" ? "PR revised" : "Draft PR created" : result.value.verdict === "approve" ? "Gate passed" : result.value.verdict === "changes_requested" ? "Changes requested" : "Gate incomplete" : queuedForOwner.value ? "Queued for branch owner" : needsDecision.value ? "Awaiting decision" : stopped.value ? "Cancelled" : awaitingChild.value ? "Station dispatched" : authorizations.value.length ? "Connection needed" : active.value ? "Running" : turn.value === "failed" ? "Failed" : ended.value ? "Finished without result" : digestError.value ? "Stream unavailable" : "Connecting");
 watch(() => props.awaitingDecision, (waiting, previous) => {
   if (props.child && previous && !waiting && !result.value && !active.value) void reconnect();
 });
-async function reconnect() { try { actionError.value = ""; if (discoveryError.value || !discovery) await followChild(); else await resume(); } catch { actionError.value = "Could not reconnect. Keep the run link to try again."; } }
+async function reconnect() {
+  actionError.value = "";
+  const results = await Promise.allSettled([loadDigest(), discoveryError.value || !discovery ? followChild() : resume()]);
+  const failed = results.filter((item): item is PromiseRejectedResult => item.status === "rejected");
+  if (failed.length || digestError.value) actionError.value = digestError.value || `Could not reconnect: ${failed.map(item => item.reason instanceof Error ? item.reason.message : String(item.reason)).join("; ")}`;
+}
 async function answer(requestId: string, optionId: string) {
   if (answering.value) return;
   answering.value = requestId;
@@ -179,6 +225,41 @@ async function copyEvidence(value: string) {
       <p v-if="queuedForOwner" role="status">Waiting for the existing branch owner to begin this revision. Earlier results belong to earlier work.</p>
       <p v-else-if="awaitingChild" role="status">Waiting for the {{ stationTitle.toLowerCase() }} session. The task has been dispatched.</p>
       <p v-else-if="active && !result && !authorizations.length && !needsDecision" role="status">{{ step }}…</p>
+      <section v-if="digest || digestError" class="run-digest" :data-status="digest?.status" aria-label="What happened in this station run">
+        <div class="run-digest-heading">
+          <UBadge :color="digest?.status === 'running' ? 'primary' : digest?.status === 'failed' || (digest?.status === 'completed' && !result) ? 'error' : digest?.status === 'cancelled' ? 'neutral' : 'success'" variant="soft">{{ digestError ? 'Digest unavailable' : digestStatusLabel }}</UBadge>
+          <span v-if="digest" class="small muted">{{ digest.steps }} model steps · {{ digest.toolCalls }} tool calls<template v-if="digest.toolErrors"> · {{ digest.toolErrors }} failed</template> · {{ digest.eventCount.toLocaleString('en-US') }} events<template v-if="digest.firstAt"> · {{ clock(digest.firstAt) }}–{{ clock(digest.lastAt) }}</template><template v-if="digest.model"> · {{ digest.model }}</template></span>
+          <UButton size="xs" variant="ghost" :loading="digestLoading" icon="i-lucide-refresh-cw" @click="loadDigest">Refresh</UButton>
+        </div>
+        <p v-if="digestError" class="run-digest-error">{{ digestError }}</p>
+        <template v-if="digest">
+          <p v-if="digest.terminal && digest.status !== 'running'" class="run-digest-line"><strong>Session ended</strong> <code>{{ digest.terminal.type }}</code><template v-if="digest.terminal.at"> at {{ clock(digest.terminal.at) }}</template><template v-if="digest.terminal.code"> · {{ digest.terminal.code }}</template><template v-if="digest.terminal.message"> · {{ digest.terminal.message }}</template><template v-if="digest.finishReason"> · finish reason <code>{{ digest.finishReason }}</code></template></p>
+          <p v-else-if="digest.lastTool" class="run-digest-line"><strong>Now</strong> {{ displayToolName(digest.lastTool.toolName) }} · {{ digest.lastTool.outcome === 'running' ? 'running' : digest.lastTool.outcome === 'ok' ? 'finished' : 'failed' }}<template v-if="digest.lastTool.input"> · <span class="muted">{{ digest.lastTool.input }}</span></template><template v-if="digest.lastAt"> · last event {{ clock(digest.lastAt) }}</template></p>
+          <UAlert v-if="digest.lastError && !result" color="error" variant="soft" :title="`Last failing tool · ${digest.lastError.toolName}`" :description="digest.lastError.message" />
+          <UAlert v-if="digest.status === 'completed' && !result && !needsDecision && !digest.pendingInput" color="warning" variant="soft" title="Finished without a host result" description="The station ended its turn normally, but never produced the publication or review the workflow waits for. The tool timeline below shows where it stopped." />
+          <p v-if="digest.pendingInput" class="run-digest-line"><strong>Waiting for input</strong> <code>{{ digest.pendingInput.kind || 'input' }}</code> · request {{ shortIdentifier(digest.pendingInput.requestId, 24) }}<template v-if="digest.pendingInput.prompt"> · {{ digest.pendingInput.prompt }}</template></p>
+          <blockquote v-if="digest.finalMessage && !result" class="agent-words"><p class="small muted">The agent's own closing words (model text, not host evidence):</p><p>{{ digest.finalMessage }}</p></blockquote>
+          <details v-if="digestTools.length" class="tool-timeline" :open="!active">
+            <summary>Tool timeline · {{ digest.toolCalls }} calls<template v-if="digestTools.length < digest.toolCalls"> (last {{ digestTools.length }})</template></summary>
+            <div class="tool-counts"><span v-for="(count, name) in digest.toolCounts" :key="name"><code>{{ name }}</code> ×{{ count.calls }}<template v-if="count.errors"> · {{ count.errors }} failed</template></span></div>
+            <div class="tool-table-wrap">
+              <table class="tool-table">
+                <thead><tr><th>#</th><th>Time</th><th>Tool</th><th>Input</th><th>Result</th><th>Took</th></tr></thead>
+                <tbody>
+                  <tr v-for="(tool, index) in digestTools" :key="tool.callId" :data-outcome="tool.outcome">
+                    <td>{{ index + 1 + Math.max(0, digest.toolCalls - digestTools.length) }}</td>
+                    <td><time :datetime="tool.startedAt">{{ clock(tool.startedAt) }}</time></td>
+                    <td><code>{{ tool.toolName }}</code></td>
+                    <td class="tool-input">{{ tool.input || '' }}</td>
+                    <td class="tool-result"><span class="tool-dot" aria-hidden="true" />{{ tool.outcome === 'running' ? 'running…' : tool.summary || (tool.outcome === 'ok' ? 'ok' : 'failed') }}</td>
+                    <td>{{ formatDuration(tool.durationMs) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </template>
+      </section>
       <div v-for="authorization in authorizations" :key="`${authorization.name}-${authorization.stepIndex}`"><p>{{ authorization.description }}</p><p>{{ authorization.authorization?.instructions }}</p><code v-if="authorization.authorization?.userCode">{{ authorization.authorization.userCode }}</code><UButton v-if="authorizationLink(authorization.authorization?.url)" :to="authorizationLink(authorization.authorization?.url)" target="_blank" rel="noopener noreferrer">Connect {{ authorization.displayName }}</UButton></div>
       <CockpitFlow
         :id="`station-${sessionId}-${child ? 'child' : 'root'}`"
@@ -204,7 +285,8 @@ async function copyEvidence(value: string) {
       </template>
       <p v-else-if="!active && summary" class="summary">{{ summary }}</p>
       <UAlert v-if="!result && !active && ended && !stopped && !awaitingChild && !needsDecision" color="warning" title="No completed result" description="The station ended without a recorded PR or review result. Inspect the run before trying again." />
-      <UButton v-if="!result && (error || discoveryError || (!active && !ended && !stopped))" variant="outline" @click="reconnect">Reconnect</UButton>
+      <UButton v-if="!result && (error || discoveryError || digestError || (!active && !ended && !stopped))" variant="outline" :loading="digestLoading" @click="reconnect">Reconnect</UButton>
+      <p v-if="!result && discoveryError && !digestError" class="small muted">The live stream filter matched no events for this attempt; the digest above is read from the whole session instead.</p>
     </template>
     <fieldset v-for="request in pendingRequests" :key="request.requestId" class="decision"><legend>Awaiting decision</legend><p>{{ request.prompt }}</p><UButton v-for="option in request.options || []" :key="option.id" :color="option.style === 'danger' ? 'error' : 'primary'" :disabled="!!answering" @click="answer(request.requestId, option.id)">{{ option.label }}</UButton><UTextarea v-if="request.allowFreeform || request.display === 'text'" v-model="freeformAnswers[request.requestId]" :rows="3" :maxlength="10000" aria-label="Answer the pending request" placeholder="Type an answer…" :disabled="!!answering" /><UButton v-if="request.allowFreeform || request.display === 'text'" :disabled="!freeformAnswers[request.requestId]?.trim() || !!answering" :loading="answering === request.requestId" @click="answerFreeform(request.requestId)">Send answer</UButton><p class="small muted">This decision applies to the existing station run. No option is selected automatically.</p></fieldset>
     <WorkRun v-if="childId" :session-id="childId" :station="station" :awaiting-decision="needsDecision" child @settled="childSettled = $event" @recorded="childRecorded = $event" />
@@ -261,4 +343,27 @@ pre { background:var(--ui-bg-muted); padding:12px; max-height:280px; overflow:au
 .tail-event-heading time { margin-left:auto; }
 .tail-events pre { margin:8px 0 0; max-height:180px; font-size:11px; }
 .confirm-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:18px; }
+.run-digest { margin:18px 0; padding:14px 16px; border:1px solid var(--ui-border); border-radius:6px; background:var(--ui-bg-muted); }
+.run-digest[data-status="failed"] { border-color:#e3b3af; }
+.run-digest-heading { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.run-digest-heading button { margin-left:auto; }
+.run-digest-line { margin:10px 0 0; font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+.run-digest-error { margin:10px 0 0; color:#a33d37; font-size:12px; }
+.run-digest .agent-words { margin:12px 0 0; padding:10px 14px; border-left:3px solid var(--ui-border); }
+.run-digest .agent-words p { margin:0; white-space:pre-wrap; font-size:12px; line-height:1.6; }
+.run-digest .agent-words p + p { margin-top:6px; }
+.tool-timeline { margin:12px 0 0; }
+.tool-timeline summary { font-weight:600; font-size:13px; }
+.tool-counts { display:flex; gap:10px; flex-wrap:wrap; margin:10px 0; font-size:11px; color:var(--ui-text-muted); }
+.tool-table-wrap { overflow-x:auto; }
+.tool-table { width:100%; border-collapse:collapse; font-size:11.5px; }
+.tool-table th, .tool-table td { padding:5px 8px; text-align:left; vertical-align:top; border-top:1px solid var(--ui-border); }
+.tool-table th { border-top:0; color:var(--ui-text-muted); font-weight:600; }
+.tool-table td:nth-child(1), .tool-table td:nth-child(6) { white-space:nowrap; color:var(--ui-text-muted); }
+.tool-input, .tool-result { max-width:360px; overflow-wrap:anywhere; }
+.tool-input { color:var(--ui-text-muted); font-family:ui-monospace, monospace; font-size:10.5px; }
+.tool-dot { display:inline-block; width:7px; height:7px; margin-right:6px; border-radius:50%; background:#75a9ad; vertical-align:middle; }
+tr[data-outcome="error"] .tool-dot { background:#c2413b; }
+tr[data-outcome="error"] .tool-result { color:#a33d37; }
+tr[data-outcome="running"] .tool-dot { background:#007f8c; box-shadow:0 0 0 3px rgba(0,127,140,.15); }
 </style>

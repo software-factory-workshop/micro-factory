@@ -6,7 +6,9 @@ import { factoryRepository, prototypeRepository } from "./factory-config.ts";
 export const repositoryName = z.string().regex(/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/);
 export const prototypeInput = z.object({repository:repositoryName,ref:z.string().min(1).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9._\/-]*$/).default("main")}).strict();
 export const migratorRequest = z.object({operationId:z.string().uuid(),title:z.string().trim().min(1).max(160),brief:z.string().trim().min(MIN_WORK_REQUEST_LENGTH).max(18000),parentPrNumber:z.number().int().positive().optional(),repository:repositoryName.default(factoryRepository),prototype:prototypeInput.default({repository:prototypeRepository,ref:"main"})}).strict();
-export const gateRequest = z.object({operationId:z.string().uuid(),prNumber:z.number().int().positive(),repository:repositoryName.default(factoryRepository)}).strict();
+// Gates receive the prototype from the host, never from the candidate: the snapshot manifest lives in the
+// migrator's sandbox and is not published, so a gate cannot learn the prototype from the PR head.
+export const gateRequest = z.object({operationId:z.string().uuid(),prNumber:z.number().int().positive(),repository:repositoryName.default(factoryRepository),prototype:prototypeInput.optional()}).strict();
 // Legacy names kept so the copied delivery loop and tests read unchanged.
 export const workerRequest = migratorRequest;
 export const reviewerRequest = gateRequest;

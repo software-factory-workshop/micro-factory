@@ -1,5 +1,6 @@
 import { parseStationToolResult, matchesStationDelivery } from '../../app/utils/work-station.ts';
 import { parseFactoryEvent, parseSubagentCalledEvent, parseSuccessfulActionResultEvent } from './factory-protocol.ts';
+import { digestRunEvents, type RunDigest } from './run-digest.ts';
 export function projectRunEvent(value:unknown,operationId?:string) {
  const parsed=parseSuccessfulActionResultEvent(value);if(!parsed)return undefined;
  const result=parsed.data.result;
@@ -25,4 +26,18 @@ export async function readStationRun(attachSession:(id:string)=>Parameters<typeo
  if(!parent.complete||!parent.childSessionId||filter.deliveryId)return {...parent,sessionId:id};
  const child=await readRun(await attachSession(parent.childSessionId),{operationId:filter.operationId});
  return {...child,sessionId:parent.childSessionId,dispatcherSessionId:id};
+}
+
+export const MAX_DIGEST_EVENTS=30000;
+/**
+ * The whole durable stream of one station session, folded into a RunDigest:
+ * status, tool timeline, last error, terminal event, the agent's closing words
+ * and usage. Read once per request; the cockpit polls it while a run is live.
+ */
+export async function readRunDigest(session:Parameters<typeof readRun>[0]):Promise<RunDigest&{streamIndex:number;complete:boolean}> {
+ const tail=await session.getStreamTailIndex();if(tail>MAX_DIGEST_EVENTS)throw new Error('Run exceeds the bounded digest window; use its Eve stream.');
+ const reader=(await session.getEventStream({startIndex:0})).getReader();const events:unknown[]=[];let timedOut=false;
+ const timeout=setTimeout(()=>{timedOut=true;void reader.cancel();},20000);
+ try {for(let index=0;index<=tail;index++){const item=await reader.read();if(item.done)break;events.push(item.value);}} finally {clearTimeout(timeout);await reader.cancel();}
+ return {...digestRunEvents(events),streamIndex:tail,complete:!timedOut&&events.length>tail};
 }

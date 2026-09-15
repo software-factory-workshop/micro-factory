@@ -21,6 +21,7 @@ import { changeResource } from '../lib/cedar/model';
 import { reconcileManuallyMergedDelivery } from '../lib/delivery-reconcile';
 import { gateStations } from '../lib/station-access';
 import { mergeEligibility } from '../lib/merge-policy';
+import { digestRunEvents,accumulateRunActivity,describeStopWithoutResult } from '../lib/run-digest';
 import { runFactoryOperation } from '../lib/cedar/operation-runner';
 import { factoryWorkflowPrincipal } from '../lib/cedar/guard';
 import { repositoryResource } from '../lib/cedar/model';
@@ -101,10 +102,10 @@ async function advance(request:Request,ctx:RouteHandlerArgs){
    const station=state.phase==='worker_starting'?'migrator':state.phase==='review_starting'?(state.gate??gateStations[0]!):'revisions';
    if(station!=='migrator'&&station!=='revisions')await checkCurrent(state.publication!,state.request.repository);
    const repository=state.request.repository;
-   const body=station==='migrator'?{operationId:state.operationId,title:state.request.title,brief:state.request.brief,repository,prototype:state.request.prototype,...(state.request.parentPrNumber?{parentPrNumber:state.request.parentPrNumber}:{})}:station==='revisions'?{operationId:state.operationId,prNumber:state.publication!.number,brief:state.revisionBrief,repository}:{operationId:state.operationId,prNumber:state.publication!.number,repository};
+   const body=station==='migrator'?{operationId:state.operationId,title:state.request.title,brief:state.request.brief,repository,prototype:state.request.prototype,...(state.request.parentPrNumber?{parentPrNumber:state.request.parentPrNumber}:{})}:station==='revisions'?{operationId:state.operationId,prNumber:state.publication!.number,brief:state.revisionBrief,repository}:{operationId:state.operationId,prNumber:state.publication!.number,repository,prototype:state.request.prototype};
    const response=await stationOperation(new Request(request.url,{method:'POST',headers:request.headers,body:JSON.stringify(body)}),{...ctx,params:{station}},state.id);
    const result=await response.json();if(!response.ok){const code=typeof result.error==='object'&&result.error&&typeof result.error.code==='string'?result.error.code:response.status>=500?'provider_unavailable':'invalid_request';throw new WorkError(code,typeof result.error==='string'?result.error:result.error?.message||'Station start failed');}
-   const previousSession=state.sessionId;state.sessionId=z.string().parse(result.sessionId);state.childSessionId=station==='revisions'||result.execution==='direct'||result.execution==='owner'?state.sessionId:undefined;state.deliveryId=result.deliveryId;if(state.sessionId!==previousSession)resetObservation(state);state.execution={attempt:state.attempt,station,operationId:state.operationId,sessionId:state.sessionId,deliveryId:state.deliveryId};
+   const previousSession=state.sessionId;state.sessionId=z.string().parse(result.sessionId);state.childSessionId=station==='revisions'||result.execution==='direct'||result.execution==='owner'?state.sessionId:undefined;state.deliveryId=result.deliveryId;if(state.sessionId!==previousSession){resetObservation(state);delete state.activity;}state.execution={attempt:state.attempt,station,operationId:state.operationId,sessionId:state.sessionId,deliveryId:state.deliveryId};
    transition(state,station==='migrator'?'working':station==='revisions'?'revising':'reviewing',{reason:`${station} execution accepted by the host.`});
   }else{
    if(!state.sessionId)throw new Error('Delivery session receipt missing');
@@ -123,6 +124,8 @@ async function advance(request:Request,ctx:RouteHandlerArgs){
    // Accumulate across advances: each observation window only holds the events since the cursor.
    const usage=accumulateModelUsage(state.usage,modelUsageFromEvents(events,{attachFactorySha:true}));
    if(usage)state.usage=usage;
+   // The cockpit shows what the station is doing from this durable summary; the stream is only needed for detail.
+   const digest=digestRunEvents(events);if(digest.eventCount)state.activity=accumulateRunActivity(state.activity,digest);
    const result=hostResult(events,state.phase==='reviewing'?'record_review':'publish_work',owner,state.phase==='reviewing'?undefined:state.operationId);
    if(result&&state.phase==='reviewing'){
     const observed=review.parse(result);await checkCurrent(state.publication!,state.request.repository);const gate=state.gate??gateStations[0]!;applyReview(state,{...observed,gate});
@@ -137,10 +140,10 @@ async function advance(request:Request,ctx:RouteHandlerArgs){
     askBudgetApproval(state,{requestId:limit.requestId,sessionId:owner,operationId:state.operationId,usedTokens:limit.usedTokens,limit:limit.limit,station});
    }else if(state.childSessionId&&stoppedWithoutResult(events)){
     const gate=state.phase==='reviewing'?(state.gate??gateStations[0]!):undefined;
-    if(gate&&retryGate(state,gate,`The ${gate} session stopped before recording a review.`)){
+    if(gate&&retryGate(state,gate,describeStopWithoutResult(gate,'record_review',stoppedWithoutResult(events)!,state.activity))){
      // A gate that never reached record_review has no verdict to honour; it is restarted, never replaced by model text.
     }else{
-     state.failedPhase=state.phase;state.error='Agent stopped without a trusted result. Inspect its run; source and ownership are preserved.';transition(state,'human_review',{reason:'The owner session stopped without a trusted host result.'});
+     const terminalType=stoppedWithoutResult(events)!;const stopStation=state.phase==='reviewing'?(state.gate??'quality-gate'):'migrator';state.failedPhase=state.phase;state.error=describeStopWithoutResult(stopStation,state.phase==='reviewing'?'record_review':'publish_work',terminalType,state.activity);transition(state,'human_review',{reason:state.error});
     }
    }
   }

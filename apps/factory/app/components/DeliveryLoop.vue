@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { deliveryFlow } from "../utils/observability-flow";
+import { deliveryFlow, displayToolName } from "../utils/observability-flow";
 import { describeDeliveryPhase, formatDeliveryUpdatedAt } from "../utils/delivery-summary";
 import { MIN_WORK_REQUEST_LENGTH } from "../utils/work-station";
 import { copyText, shortIdentifier } from "../utils/technical-details";
@@ -44,6 +44,7 @@ interface Delivery {
   admission?: { kind: string; outcome?: string; scope?: string[]; evidence?: string[]; verification?: string[] };
   history: Array<{ phase: string; to?: string; at?: string; actor?: string; reason?: string; receiptId?: string; sessionId?: string; headSha?: string; operationId?: string; attempt?: number }>;
   usage?: { model?: string; inputTokens?: number; outputTokens?: number; usd?: number; factorySha?: string };
+  activity?: { updatedAt: string; eventCount: number; steps: number; toolCalls: number; toolErrors: number; lastEventAt?: string; lastTool?: { toolName: string; input?: string; summary?: string; outcome: string; startedAt?: string; endedAt?: string; durationMs?: number }; lastError?: { toolName: string; message: string; at?: string }; finalMessage?: string; terminal?: { type: string; at?: string; code?: string; message?: string }; model?: string };
 }
 interface ReconciliationResult { eligible: boolean; reason: string; commitSha?: string }
 
@@ -111,7 +112,24 @@ const flowModel = computed(() => deliveryFlow({
   question: pendingOwnerQuestion.value?.question,
 }));
 const phaseInfo = computed(() => run.value ? describeDeliveryPhase(run.value.phase) : { label: "Workflow blueprint", color: "neutral" as const });
-const phaseDetail = computed(() => pendingOwnerQuestion.value?.question || run.value?.error || run.value?.mergeDecision?.reason || run.value?.review?.summary || "The durable workflow is observing the next station.");
+const runningPhases = new Set(["working", "reviewing", "revising", "owner_resuming"]);
+function relativeTime(value?: string) {
+  if (!value) return "";
+  const seconds = Math.max(0, Math.round((Date.now() - Date.parse(value)) / 1000));
+  if (!Number.isFinite(seconds)) return "";
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
+  return `${Math.round(seconds / 3600)} h ago`;
+}
+const activityLine = computed(() => {
+  const activity = run.value?.activity;
+  if (!activity) return undefined;
+  const last = activity.lastTool;
+  const lastText = last ? `last ${last.outcome === "running" ? "running" : last.outcome === "error" ? "failed" : "finished"} ${displayToolName(last.toolName).toLowerCase()}${last.summary ? ` → ${last.summary}` : ""}` : undefined;
+  return [`step ${activity.steps}`, `${activity.toolCalls} tool calls${activity.toolErrors ? ` (${activity.toolErrors} failed)` : ""}`, lastText, activity.lastEventAt ? `last event ${relativeTime(activity.lastEventAt)}` : undefined].filter(Boolean).join(" · ");
+});
+const phaseDetail = computed(() => pendingOwnerQuestion.value?.question || run.value?.error || (run.value && runningPhases.has(run.value.phase) && activityLine.value) || run.value?.mergeDecision?.reason || run.value?.review?.summary || (run.value && runningPhases.has(run.value.phase) ? "Station accepted; waiting for its first events." : "The durable workflow is observing the next station."));
+const currentAttempt = computed(() => attempts.value.find(item => item.sessionId === run.value?.execution?.sessionId) ?? attempts.value.at(-1));
 const updatedLabel = computed(() => formatDeliveryUpdatedAt(run.value?.updatedAt));
 const usageLabel = computed(() => formatModelUsage(run.value?.usage));
 const gateReviews = computed(() => Object.entries(run.value?.reviews ?? {}).filter((entry): entry is [string, Review] => !!entry[1]));
@@ -142,7 +160,10 @@ const attempts = computed(() => {
 });
 function attemptLink(item: { station: string; sessionId: string; operationId?: string }) {
   const station = item.station === "revisions" ? "migrator" : item.station;
-  return { path: "/work/run", query: { station, run: item.sessionId, rootAgent: station, deliveryId: run.value?.id, ...(item.operationId && station === "migrator" ? { operationId: item.operationId } : {}) } };
+  // Eve tags events with its own message delivery id, not the factory delivery id; filter only when the host recorded one for this exact session.
+  const execution = run.value?.execution;
+  const eveDeliveryId = execution && execution.sessionId === item.sessionId && execution.operationId === item.operationId ? execution.deliveryId : undefined;
+  return { path: "/work/run", query: { station, run: item.sessionId, rootAgent: station, ...(eveDeliveryId ? { deliveryId: eveDeliveryId } : {}), ...(item.operationId && station === "migrator" ? { operationId: item.operationId } : {}) } };
 }
 const briefLength = computed(() => props.brief.trim().length);
 const briefReady = computed(() => briefLength.value >= MIN_WORK_REQUEST_LENGTH);
@@ -441,6 +462,17 @@ onBeforeUnmount(() => {
     </details>
     <div v-if="run?.mergeDecision" class="delivery-note delivery-decision"><UBadge :color="mergeColor(run.mergeDecision.status)" variant="soft">Merge decision · {{ run.mergeDecision.status }}</UBadge><span v-if="run.mergeDecision.reason">{{ run.mergeDecision.reason }}</span></div>
     <p v-if="run?.error" class="delivery-error" role="alert">{{ run.error }}</p>
+    <section v-if="run?.activity" class="station-activity" aria-labelledby="station-activity-heading">
+      <div class="section-heading"><h3 id="station-activity-heading">What the station did</h3><span class="small muted">{{ run.activity.steps }} model steps · {{ run.activity.toolCalls }} tool calls<template v-if="run.activity.toolErrors"> · {{ run.activity.toolErrors }} failed</template><template v-if="run.activity.model"> · {{ run.activity.model }}</template></span></div>
+      <dl class="activity-grid">
+        <div v-if="run.activity.terminal"><dt>Session ended</dt><dd><code>{{ run.activity.terminal.type }}</code><template v-if="run.activity.terminal.at"> · {{ historyAt(run.activity.terminal.at) }}</template><template v-if="run.activity.terminal.code"> · {{ run.activity.terminal.code }}</template><span v-if="run.activity.terminal.message"> · {{ run.activity.terminal.message }}</span></dd></div>
+        <div v-else-if="run.activity.lastEventAt"><dt>Last event</dt><dd>{{ historyAt(run.activity.lastEventAt) }} ({{ relativeTime(run.activity.lastEventAt) }})</dd></div>
+        <div v-if="run.activity.lastError" class="activity-error"><dt>Last failing tool</dt><dd><code>{{ run.activity.lastError.toolName }}</code> · {{ run.activity.lastError.message }}</dd></div>
+        <div v-if="run.activity.lastTool"><dt>Last tool</dt><dd><code>{{ run.activity.lastTool.toolName }}</code> · {{ run.activity.lastTool.outcome === 'ok' ? 'finished' : run.activity.lastTool.outcome === 'error' ? 'failed' : 'running' }}<template v-if="run.activity.lastTool.input"> · <span class="muted">{{ run.activity.lastTool.input }}</span></template><template v-if="run.activity.lastTool.summary"> → {{ run.activity.lastTool.summary }}</template></dd></div>
+      </dl>
+      <blockquote v-if="run.activity.finalMessage" class="agent-words"><p class="small muted">The agent's own closing words (model text, not host evidence):</p><p>{{ run.activity.finalMessage }}</p></blockquote>
+      <p v-if="currentAttempt" class="small"><NuxtLink :to="attemptLink(currentAttempt)">Open the full tool timeline of this station run</NuxtLink></p>
+    </section>
     <section v-if="attempts.length" class="review-evidence" aria-labelledby="attempts-heading">
       <div class="section-heading"><h3 id="attempts-heading">Attempts</h3><span class="small muted">{{ attempts.length }} station runs</span></div>
       <ul class="attempt-list">
@@ -570,6 +602,15 @@ onBeforeUnmount(() => {
 .delivery-live div span { overflow: hidden; color: var(--ui-text-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .delivery-updated { margin-left: auto; flex-shrink: 0; color: var(--ui-text-muted); font-size: 11px; }
 .delivery-id, .delivery-note, .delivery-error { margin: 14px 0 0; font-size: 12px; line-height: 1.6; }
+.station-activity { margin-top: 18px; padding: 14px 16px; border: 1px solid var(--ui-border); border-radius: 6px; background: var(--ui-bg-muted); }
+.activity-grid { display: grid; gap: 8px; margin: 10px 0 0; font-size: 12px; }
+.activity-grid div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px; align-items: baseline; }
+.activity-grid dt { color: var(--ui-text-muted); }
+.activity-grid dd { margin: 0; overflow-wrap: anywhere; }
+.activity-error dd { color: #a33d37; }
+.agent-words { margin: 12px 0 0; padding: 10px 14px; border-left: 3px solid var(--ui-border); }
+.agent-words p { margin: 0; white-space: pre-wrap; font-size: 12px; line-height: 1.6; }
+.agent-words p + p { margin-top: 6px; }
 .delivery-usage { margin: 8px 0 0; color: var(--ui-text-muted); font-size: 12px; }
 .delivery-id { color: var(--ui-text-muted); overflow-wrap: anywhere; }
 .technical-evidence { margin: 16px 0 0; padding: 12px 14px; border: 1px solid var(--ui-border); border-radius: 6px; background: var(--ui-bg-muted); font-size: 12px; }
